@@ -118,9 +118,6 @@ module CongruenceClosure where
   size : Ref → Data → ℕ
   size n d = safeLookup (repr n d) (Data.size d) 1
 
-  mkReflEqual : Ref → Equal
-  mkReflEqual n = mkEqual n n (fromTerm (reflTerm n))
-
   proof : Ref → Data → Map ParallelEdges
   proof n d = safeLookup n (Data.edges d) ((n , mkParallelEdges n n (fromTerm (reflTerm n) ∷ [])) ∷ [])
 
@@ -292,7 +289,7 @@ module CongruenceClosure where
       rec zero _ _ _ = false
       rec (suc n) f a d = f a or any (λ x → rec n f (ParallelEdges.right (proj₂ x)) d) (proof a d)
 
-  -- Assumes that the pathover Equalities are processed first
+  -- Assumes that the pathover equalities are processed first
   processEq : Bool → Equal → Data → Data
   processEq _ (mkEqual l r _ ) d with [ l ≊ r ] d
   processEq false (mkEqual l r _) d | true = d

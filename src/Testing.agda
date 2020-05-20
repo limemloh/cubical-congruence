@@ -5,11 +5,11 @@ module Testing where
   open import Cubical.Foundations.Everything
   open import Cubical.Data.Nat
   open import Cubical.Data.Maybe
-  open import Cubical.Data.List hiding ([_])
+  open import Cubical.Data.List
   open import Cubical.Data.Prod
   open import CongruenceMacro
 
-  -- Just for debugging utils
+  -- For debugging
   open import CongruenceClosure
   open import ReflectionUtils
   open import Agda.Builtin.Reflection hiding (Type)
@@ -71,35 +71,35 @@ module Testing where
 
   -- Transitivity heterogeneuos
   test₁₃ : ∀ {ℓ} {A B C : Type ℓ} {AB : A ≡ B} {BC : B ≡ C} {a : A} {b : B} {c : C} →
-    (λ i → AB i)[ a ≡ b ] → (λ i → BC i)[ b ≡ c ] → (λ i → (AB ∙ BC) i)[ a ≡ c ]
+    PathP (λ i → AB i) a b → PathP (λ i → BC i) b c → PathP (λ i → (AB ∙ BC) i) a c
   test₁₃ p q = congruence
 
   -- Transitivity heterogeneuos and homogeneous
   test₁₄ : ∀ {ℓ} {A B : Type ℓ} {AB : A ≡ B} {a : A} {b b' : B} →
-    (λ i → AB i)[ a ≡ b ] → b ≡ b' → (λ i → AB i)[ a ≡ b' ]
+    PathP (λ i → AB i) a b → b ≡ b' → PathP (λ i → AB i) a b'
   test₁₄ p q = congruence
 
   -- Transitivity homogeneous and heterogeneuos
   test₁₅ : ∀ {ℓ} {A B : Type ℓ} {AB : A ≡ B} {a a' : A} {b : B} →
-    a ≡ a' → (λ i → AB i)[ a' ≡ b ] → (λ i → AB i)[ a ≡ b ]
+    a ≡ a' → PathP (λ i → AB i) a' b → PathP (λ i → AB i) a b
   test₁₅ p q = congruence
 
   -- Congruence dependent function
   test₁₆ : ∀ {ℓ} {A : Type ℓ} {C : A → Type ℓ} (f : (a : A) → C a) {a a' : A} →
-    (p : a ≡ a') → (λ i → C (p i))[ f a ≡ f a' ]
+    (p : a ≡ a') → PathP (λ i → C (p i)) (f a) (f a')
   test₁₆ f p = congruence
 
   -- Congruence Transitivity dependent function
   test₁₇ : ∀ {ℓ} {A : Type ℓ} {C : A → Type ℓ} (f : (a : A) → C a) {a b c : A} →
-    (p : a ≡ b) → (q : b ≡ c) → (λ i → C ((p ∙ q) i))[ f a ≡ f c ]
+    (p : a ≡ b) → (q : b ≡ c) → PathP (λ i → C ((p ∙ q) i)) (f a) (f c)
   test₁₇ f p q = congruence
 
   -- Favor paths appearing in the pathover
   test₁₈ : ∀ {ℓ} {A : Type ℓ} {C : A → Type ℓ} (f : (a : A) → C a) {a b c : A} →
-    (p q : a ≡ b) → (λ i → C (p i))[ f a ≡ f b ]
+    (p q : a ≡ b) → PathP (λ i → C (p i)) (f a) (f b)
   test₁₈ f p q = congruence
   test₁₉ : ∀ {ℓ} {A : Type ℓ} {C : A → Type ℓ} (f : (a : A) → C a) {a b c : A} →
-    (p q : a ≡ b) → (λ i → C (q i))[ f a ≡ f b ]
+    (p q : a ≡ b) → PathP (λ i → C (q i)) (f a) (f b)
   test₁₉ f p q = congruence
 
   -- -- Try different solutions when paths of same type appear in pathover (p and refl)
@@ -170,12 +170,12 @@ module Testing where
   []ₓ +++ r = r
   (x ∷ₓ l) +++ r = x ∷ₓ (l +++ r)
 
-  +++-unit-r : ∀ {A} {n} → (v : Vec A n) → (λ i → Vec A (+-zero n i))[ v +++ []ₓ ≡ v ]
+  +++-unit-r : ∀ {A} {n} → (v : Vec A n) → PathP (λ i → Vec A (+-zero n i)) (v +++ []ₓ) v
   +++-unit-r []ₓ = refl
   +++-unit-r {A} {n} (x ∷ₓ v) =
     let IH = +++-unit-r v
         q = quoteTerm (v +++ []ₓ)
-        tree = runTC (termToTree fuel q)
+        tree = runTC (termToInput fuel q)
         -- ql = quoteTerm (x ∷ₓ (v +++ []ₓ))
         -- qr = quoteTerm (x ∷ₓ v)
         -- qg = quoteTerm ((λ i → Vec A (+-zero n i))[ (x ∷ₓ v) +++ []ₓ ≡ (x ∷ₓ v) ])
@@ -189,7 +189,7 @@ module Testing where
     in {!congruenceH IH !} -- (hcongr-ideal (λ i → _∷ₓ_ x) IH)
 
   +++-assoc : ∀ {A} {m n o} → (v : Vec A m) → (w : Vec A n) → (q : Vec A o) →
-                (λ i → Vec A (+-assoc m n o i)) [ v +++ (w +++ q) ≡ (v +++ w) +++ q ]
+                PathP (λ i → Vec A (+-assoc m n o i)) (v +++ (w +++ q)) ((v +++ w) +++ q)
   +++-assoc []ₓ w q = refl
   +++-assoc (x ∷ₓ v) w q = hcongr-ideal (λ i a → x ∷ₓ a) (+++-assoc v w q)
 

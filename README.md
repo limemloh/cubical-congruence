@@ -9,6 +9,3 @@ TBA
 
 ## Usage
 For now just look at the file `src/Testing.agda`
-
-
-

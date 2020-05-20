@@ -5,6 +5,7 @@ module ReflectionUtils where
   open import Cubical.Data.Bool hiding (_≟_)
   open import Cubical.Data.Prod
   open import Cubical.Data.Maybe
+  open import Cubical.Data.Nat
   open import Cubical.Data.Unit
   open import Reflection hiding (Type; name; _≟_)
   open import Reflection.Term using (_≟_)
@@ -44,14 +45,16 @@ module ReflectionUtils where
   isVarN n (var x _) = n Nat.== x
   isVarN n _ = false
 
-  apply : ∀ {ℓ} {ℓ'} {A : Type ℓ} {B : A → Type ℓ'} → (f : (a : A) → B a) → (a : A) → B a
-  apply f a = f a
-
-  applyI : ∀ {ℓ} {B : I → Type ℓ} → (f : (a : I) → B a) → (a : I) → B a
-  applyI f a = f a
-
-  applyTerm : Term → Term → Term
-  applyTerm f a = def (quote apply) (repeat 4 (hArg unknown) ++ vArg f ∷ vArg a ∷ [])
+  mapIndex : ℕ → (ℕ → ℕ) → Term → Term
+  mapIndex zero _ t = t
+  mapIndex (suc n) f (var x args) = var (f x) (mapList (mapArg (mapIndex n f)) args)
+  mapIndex (suc n) f (con c args) = con c (mapList (mapArg (mapIndex n f)) args)
+  mapIndex (suc n) f (def f₁ args) = def f₁ (mapList (mapArg (mapIndex n f)) args)
+  mapIndex (suc n) f (lam v (abs s x)) = lam v (abs s (mapIndex n f x))
+  mapIndex (suc n) f (pat-lam cs args) = pat-lam cs (mapList (mapArg (mapIndex n f)) args)
+  mapIndex (suc n) f (pi a (abs s x)) = pi (mapArg (mapIndex n f) a) (abs s (mapIndex n f x))
+  mapIndex (suc n) f (agda-sort (Sort.set t)) = agda-sort (Sort.set (mapIndex n f t))
+  mapIndex (suc n) f t = t
 
   endpoint0 : ∀ {ℓ} (P : I → Type ℓ) → Type ℓ
   endpoint0 P = P i0
@@ -77,21 +80,6 @@ module ReflectionUtils where
                  return true)
              (return false))
 
-  path-type-info : Term → TC (Term × Term × Term)
-  path-type-info ty = catchTC (helper ty)
-                              (do n ← reduce ty
-                                  helper n)
-    where
-      helper : Term → TC (Term × Term × Term)
-      helper (def (quote _≡_) (_ ∷ arg _ P ∷ arg _ l ∷ arg _ r ∷ [])) = return (l , r ,  P)
-      helper (def (quote PathP) (_ ∷ arg _ P ∷ arg _ l ∷ arg _ r ∷ [])) = return (l , r ,  P)
-      helper t = typeError (strErr "Term" ∷ termErr t ∷ strErr "is not a path." ∷ [])
-
-  path-info : Term → TC (Term × Term × Term)
-  path-info t = -- withNormalisation true
-    do ty ← inferType t
-       path-type-info ty
-
   record PathInfo : Set where
     constructor PInfo
     field
@@ -100,11 +88,26 @@ module ReflectionUtils where
       pathover : Maybe Term
   open PathInfo
 
+  parsePathType : Term → TC PathInfo
+  parsePathType ty = catchTC (helper ty)
+                              (do n ← reduce ty
+                                  helper n)
+    where
+      helper : Term → TC PathInfo
+      helper (def (quote _≡_) (_ ∷ arg _ P ∷ arg _ l ∷ arg _ r ∷ [])) = return (PInfo l r (just P))
+      helper (def (quote PathP) (_ ∷ arg _ P ∷ arg _ l ∷ arg _ r ∷ [])) = return (PInfo l r (just P))
+      helper t = typeError (strErr "Term" ∷ termErr t ∷ strErr "is not a path." ∷ [])
+
+  parsePath : Term → TC PathInfo
+  parsePath t =
+    do ty ← inferType t
+       parsePathType ty
+
   getSimplePathInfo : Term → TC PathInfo
   getSimplePathInfo t =
-    do (l , r , P) ← path-info t
+    do PInfo l r P ← parsePath t
        hom ← isHomogeneous t
-       return (PInfo l r (if hom then nothing else (just P)))
+       return (PInfo l r (if hom then nothing else P))
 
   getPathInfo : Term → TC PathInfo
   getPathInfo t =
@@ -115,12 +118,7 @@ module ReflectionUtils where
              return (PInfo l r nothing))
          else getSimplePathInfo t
 
-  getPathover : Term → TC Term
-  getPathover t = do (_ , _ , P) ← path-info t
-                     return P
-
-  -- ** Reflection Helpers
-
+  -- Building Terms
   reflTerm : Term → Term
   reflTerm t = (def (quote refl) (hArg unknown ∷ hArg unknown ∷ hArg t ∷ []))
 
@@ -138,7 +136,6 @@ module ReflectionUtils where
 
   symTermsTC : List (TC Term) → List (TC Term)
   symTermsTC l = mapList (mapTC symTerm) l
-
 
   rUnitPathover : ∀ {ℓ} {A B : Type ℓ} → (AB : A ≡ B) → (a : A) → (b : B) → PathP (λ i → (AB ∙ refl) i) a b ≡ PathP (λ i → AB i) a b
   rUnitPathover AB a b = λ i → PathP (λ j → rUnit AB (~ i) j) a b
