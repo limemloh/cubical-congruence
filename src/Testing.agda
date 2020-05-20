@@ -22,7 +22,7 @@ module Testing where
       b : A
       c : A
 
--- *** Possible in Dependent Types
+-- *** Dependent Types
   -- Symmetry
   test₁ : a ≡ b → b ≡ a
   test₁ p = congruence
