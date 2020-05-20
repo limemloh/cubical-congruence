@@ -13,13 +13,13 @@ module CongruenceMacro where
   open import CongruenceClosure
 
 -- * Parsing Terms
-  listTree : Tree → List E
+  listTree : DepTree → List Input
   listTree (mkLeaf x) = []
-  listTree (mkNode (mkLocal c f a)) = listTree f ++ listTree a ∷ʳ ¬Eq (mkNode (mkLocal c f a))
+  listTree (mkNode (mkLocal c f a)) = listTree f ++ listTree a ∷ʳ Dep (mkNode (mkLocal c f a))
 
-  traverseArgs : ℕ → (List (Arg Term) → Term) → List (Arg Term) → TC Tree
+  traverseArgs : ℕ → (List (Arg Term) → Term) → List (Arg Term) → TC DepTree
 
-  termToTree : ℕ → Term → TC Tree
+  termToTree : ℕ → Term → TC DepTree
   termToTree zero _ = typeError (strErr "Timeout" ∷ [])
   termToTree (suc n) (var x args) = traverseArgs n (var x) args
   termToTree (suc n) (con c args) = traverseArgs n (con c) args
@@ -31,7 +31,7 @@ module CongruenceMacro where
 
   traverseArgs n f args = mapTC proj₂ (foldl fn (return ([] , mkLeaf (f []))) args)
     where
-      fn : TC (List (Arg Term) × Tree) → Arg Term → TC (List (Arg Term) × Tree)
+      fn : TC (List (Arg Term) × DepTree) → Arg Term → TC (List (Arg Term) × DepTree)
       fn accTC (arg i x) =
         do acc ← accTC
            let args = proj₁ acc ∷ʳ (arg i x)
@@ -39,14 +39,14 @@ module CongruenceMacro where
            rtree ← termToTree n x
            return (args , mkNode (mkLocal (f args) ltree rtree))
 
-  parsePath : ℕ → Bool → Term → TC (List E)
+  parsePath : ℕ → Bool → Term → TC (List Input)
   parsePath n b term =
     do info ← getPathInfo term
        lt ← termToTree n (PathInfo.left info)
        rt ← termToTree n (PathInfo.right info)
        return (listTree lt ++ listTree rt ∷ʳ Eq b (mkEqual (ref lt) (ref rt) (fromTerm term)))
 
-  parse : ℕ → Term → TC (List E)
+  parse : ℕ → Term → TC (List Input)
   parse n term =
     catchTC (parsePath n false term)
             (do tree ← termToTree n term
@@ -86,11 +86,11 @@ module CongruenceMacro where
       helper (suc n) d unknown = []
   parsePathover n _ = []
 
-  pathoverToEs : ℕ → Maybe Term → TC (List E)
+  pathoverToEs : ℕ → Maybe Term → TC (List Input)
   pathoverToEs n nothing = return []
   pathoverToEs n (just x) = mapTC flat (sequence (mapList (parsePath n true) (parsePathover n x)))
 
-  parseGoal : ℕ → Term → TC (Term × Term × List E)
+  parseGoal : ℕ → Term → TC (Term × Term × List Input)
   parseGoal n goal = catchTC
     (do PInfo a b P ← getPathInfo goal
         aEs ← termToTree n a
@@ -99,12 +99,12 @@ module CongruenceMacro where
         return ( a , b , pathoverEs ++ listTree aEs ++ listTree bEs ))
     (typeError (strErr "Failed parsing the goal" ∷ []))
 
-  parseCtx : ℕ → TC (List E)
+  parseCtx : ℕ → TC (List Input)
   parseCtx n =
     do ctx ← getContext
        rec (length ctx)
     where
-      rec : ℕ → TC (List E)
+      rec : ℕ → TC (List Input)
       rec zero = return []
       rec (suc i) =
         do l ← parse n (var i [])
