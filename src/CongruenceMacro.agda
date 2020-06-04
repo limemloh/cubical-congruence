@@ -80,7 +80,7 @@ module CongruenceMacro where
 
   pathoverToInput : ℕ → Maybe Term → TC (List Input)
   pathoverToInput n nothing = return []
-  pathoverToInput n (just x) = mapTC flat (sequence (mapList (pathToInput n true) (pathoverToTerms n x)))
+  pathoverToInput n (just x) = mapTC flat (sequenceTC (mapList (pathToInput n true) (pathoverToTerms n x)))
 
   goalToInput : ℕ → Term → TC (Term × Term × List Input)
   goalToInput n goal = catchTC
@@ -103,6 +103,7 @@ module CongruenceMacro where
         do l ← termToInput n (var i [])
            r ← rec i
            return (l ++ r)
+           
 -- * Macros
 
   -- To put a cap on computation and satisfy the termination checker
@@ -112,7 +113,7 @@ module CongruenceMacro where
   computeCCHelper : Maybe Term → Term → TC Data
   computeCCHelper hint goalTy =
     do ctxInput ← inputFromCtx fuel
-       PInfo a b P ← parsePathType goalTy
+       PInfo a b P ← getPathTypeInfo goalTy
        aInput ← termToDep fuel a
        bInput ← termToDep fuel b
        pathoverInput ← pathoverToInput fuel P
@@ -127,7 +128,6 @@ module CongruenceMacro where
        
   computeCCH : Term → Term → TC Data
   computeCCH hint = computeCCHelper (just hint)
-
 
   noSolutionError : Term → Term → TC Unit
   noSolutionError a b = typeError

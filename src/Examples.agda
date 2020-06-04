@@ -1,7 +1,6 @@
 {-# OPTIONS --cubical --safe #-}
 
--- ** Testing
-module Testing where
+module Examples where
   open import Cubical.Foundations.Everything
   open import Cubical.Data.Nat
   open import Cubical.Data.Maybe
@@ -22,7 +21,6 @@ module Testing where
       b : A
       c : A
 
--- *** Dependent Types
   -- Symmetry
   test₁ : a ≡ b → b ≡ a
   test₁ p = congruence
@@ -59,7 +57,7 @@ module Testing where
 
   -- Taken from https://coq.inria.fr/refman/proof-engine/tactics.html#coq:tacn.congruence
   test₁₀ : ∀ {f : A → A} {g : A → A → A} {a b : A} → a ≡ f a → g b (f a) ≡ f (f a) → g a b ≡ f (g b a) → g a b ≡ a
-  test₁₀ {g = g} {a = a} {b = b} p q r = congruence
+  test₁₀ p q r = congruence
 
   -- Congruence contructor
   test₁₁ : ∀ {ℓ} {A : Type ℓ} {a b : A} → a ≡ b → just a ∷ [] ≡ just b ∷ []
@@ -101,6 +99,8 @@ module Testing where
   test₁₉ : ∀ {ℓ} {A : Type ℓ} {C : A → Type ℓ} (f : (a : A) → C a) {a b c : A} →
     (p q : a ≡ b) → PathP (λ i → C (q i)) (f a) (f b)
   test₁₉ f p q = congruence
+
+-- * TODO
 
   -- -- Try different solutions when paths of same type appear in pathover (p and refl)
   -- test₂₀ : ∀ {ℓ} {A : Type ℓ} {C : A → Type ℓ} (f : (a : A) → C a) {a : A} →
@@ -192,9 +192,3 @@ module Testing where
                 PathP (λ i → Vec A (+-assoc m n o i)) (v +++ (w +++ q)) ((v +++ w) +++ q)
   +++-assoc []ₓ w q = refl
   +++-assoc (x ∷ₓ v) w q = hcongr-ideal (λ i a → x ∷ₓ a) (+++-assoc v w q)
-
-  module CubicalRevisit where
-    open import Cubical.Data.Fin
-
-    lemma₅ : ∀ k n (R : Residue k n) → extract R ≡ extract (transport (Residue≡ k n) R)
-    lemma₅ k n R = {!congruence!}

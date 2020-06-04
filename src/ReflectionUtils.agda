@@ -19,8 +19,8 @@ module ReflectionUtils where
     runTC tc goal = do a ← tc
                        q ← quoteTC a
                        unify goal q
-    runTCt : TC Term → Term → TC Unit
-    runTCt tc goal =
+    runTCTerm : TC Term → Term → TC Unit
+    runTCTerm tc goal =
       do a ← tc
          unify goal a
 
@@ -28,11 +28,11 @@ module ReflectionUtils where
   mapTC f tc = do x ← tc
                   return (f x)
 
-  sequence : {A : Set} → List (TC A) → TC (List A)
-  sequence [] = return []
-  sequence (tc ∷ tcs) =
+  sequenceTC : {A : Set} → List (TC A) → TC (List A)
+  sequenceTC [] = return []
+  sequenceTC (tc ∷ tcs) =
     do x ← tc
-       xs ← sequence tcs
+       xs ← sequenceTC tcs
        return (x ∷ xs)
 
   unwrapArg : Arg Term → Term
@@ -56,20 +56,11 @@ module ReflectionUtils where
   mapIndex (suc n) f (agda-sort (Sort.set t)) = agda-sort (Sort.set (mapIndex n f t))
   mapIndex (suc n) f t = t
 
-  endpoint0 : ∀ {ℓ} (P : I → Type ℓ) → Type ℓ
-  endpoint0 P = P i0
+  reflTerm : Term → Term
+  reflTerm t = (def (quote refl) (hArg unknown ∷ hArg unknown ∷ hArg t ∷ []))
 
-  endpoint1 : ∀ {ℓ} (P : I → Type ℓ) → Type ℓ
-  endpoint1 P = P i1
-
-  endpoint0Term : Term → TC Term
-  endpoint0Term P = normalise (def (quote endpoint0) (hArg unknown ∷ vArg P ∷ []))
-
-  endpoint1Term : Term → TC Term
-  endpoint1Term P = normalise (def (quote endpoint1) (hArg unknown ∷ vArg P ∷ []))
-
-  isIntervalPath : Term → TC Bool
-  isIntervalPath t =
+  isIntervalFn : Term → TC Bool
+  isIntervalFn t =
     catchTC (do (checkType t (pi (vArg (def (quote I) [])) (abs "_" unknown)))
                 return true)
             (return false)
@@ -88,39 +79,39 @@ module ReflectionUtils where
       pathover : Maybe Term
   open PathInfo
 
-  parsePathType : Term → TC PathInfo
-  parsePathType ty = catchTC (helper ty)
+  getPathTypeInfo : Term → TC PathInfo
+  getPathTypeInfo ty = catchTC (helper ty)
                               (do n ← reduce ty
                                   helper n)
     where
       helper : Term → TC PathInfo
-      helper (def (quote _≡_) (_ ∷ arg _ P ∷ arg _ l ∷ arg _ r ∷ [])) = return (PInfo l r (just P))
+      helper (def (quote _≡_) (_ ∷ arg _ P ∷ arg _ l ∷ arg _ r ∷ [])) = return (PInfo l r (just (reflTerm P)))
       helper (def (quote PathP) (_ ∷ arg _ P ∷ arg _ l ∷ arg _ r ∷ [])) = return (PInfo l r (just P))
       helper t = typeError (strErr "Term" ∷ termErr t ∷ strErr "is not a path." ∷ [])
 
-  parsePath : Term → TC PathInfo
-  parsePath t =
-    do ty ← inferType t
-       parsePathType ty
+  endpoint0 : ∀ {ℓ} {A : I → Type ℓ} (P : (i : I) → A i) → A i0
+  endpoint0 P = P i0
 
-  getSimplePathInfo : Term → TC PathInfo
-  getSimplePathInfo t =
-    do PInfo l r P ← parsePath t
-       hom ← isHomogeneous t
-       return (PInfo l r (if hom then nothing else P))
+  endpoint1 : ∀ {ℓ} {A : I → Type ℓ} (P : (i : I) → A i) → A i1
+  endpoint1 P = P i1
+
+  endpoint0Term : Term → TC Term
+  endpoint0Term P = normalise (def (quote endpoint0) (hArg unknown ∷ hArg unknown ∷ vArg P ∷ []))
+
+  endpoint1Term : Term → TC Term
+  endpoint1Term P = normalise (def (quote endpoint1) (hArg unknown ∷ hArg unknown ∷ vArg P ∷ []))
 
   getPathInfo : Term → TC PathInfo
   getPathInfo t =
-    do isInter ← isIntervalPath t
+    do isInter ← isIntervalFn t
        if isInter then
          (do l ← endpoint0Term t
              r ← endpoint1Term t
              return (PInfo l r nothing))
-         else getSimplePathInfo t
+         else do ty ← inferType t
+                 getPathTypeInfo ty
 
-  -- Building Terms
-  reflTerm : Term → Term
-  reflTerm t = (def (quote refl) (hArg unknown ∷ hArg unknown ∷ hArg t ∷ []))
+-- * Building Terms
 
   pattern SymPTerm p = (def (quote symP) (_ ∷ _ ∷ _ ∷ _ ∷ arg _ p ∷ []))
   pattern ReflTerm n = (def (quote refl)) (_ ∷ _ ∷ arg _ n ∷ [])
@@ -196,3 +187,53 @@ module ReflectionUtils where
 
   hcongrTermsTC : List (TC Term) → List (TC Term) → List (TC Term)
   hcongrTermsTC fs as = flatmap (λ f → mapList (hcongrTermTC f) as) fs
+
+  module Examples where
+    -- * Examples
+    getPathInfoExamplePath : ∀ {ℓ} {A : Type ℓ} {a b : A} → (p : a ≡ b) →
+      runTC (getPathInfo (quoteTerm p)) ≡ PInfo (quoteTerm a) (quoteTerm b) (just (reflTerm (quoteTerm A)))
+    getPathInfoExamplePath p = refl
+
+    getPathInfoExamplePathP : ∀ {ℓ} {A : I → Type ℓ} {a : A i0} {b : A i1} → (p : PathP A a b) →
+      runTC (getPathInfo (quoteTerm p)) ≡ PInfo (quoteTerm a) (quoteTerm b) (just (quoteTerm A))
+    getPathInfoExamplePathP p = refl
+
+    getPathInfoExampleInterval : ∀ {ℓ} {A : Type ℓ} → (p : I → A) →
+      runTC (getPathInfo (quoteTerm p)) ≡ PInfo (quoteTerm (p i0)) (quoteTerm (p i1)) nothing
+    getPathInfoExampleInterval p = refl
+
+    getPathInfoExampleDepInterval : ∀ {ℓ} {A : I → Type ℓ} → (p : (i : I) → A i) →
+      runTC (getPathInfo (quoteTerm p)) ≡ PInfo (quoteTerm (p i0)) (quoteTerm (p i1)) nothing
+    getPathInfoExampleDepInterval p = refl
+
+    isIntervalFnExampleInterval : ∀ {ℓ} {A : Type ℓ} → (p : I → A) →
+      runTC (isIntervalFn (quoteTerm p)) ≡ true
+    isIntervalFnExampleInterval p = refl
+
+    isIntervalFnExampleDepInterval : ∀ {ℓ} {A : I → Type ℓ} → (p : (i : I) → A i) →
+      runTC (isIntervalFn (quoteTerm p)) ≡ true
+    isIntervalFnExampleDepInterval p = refl
+
+    isIntervalFnExamplePath : ∀ {ℓ} {A : Type ℓ} {a b : A} → (p : a ≡ b) →
+      runTC (isIntervalFn (quoteTerm p)) ≡ false
+    isIntervalFnExamplePath p = refl
+
+    isIntervalFnExamplePathP : ∀ {ℓ} {A : I → Type ℓ} {a : A i0} {b : A i1} → (p : PathP A a b) →
+      runTC (isIntervalFn (quoteTerm p)) ≡ false
+    isIntervalFnExamplePathP p = refl
+
+    endpoint0TermExampleInterval : ∀ {ℓ} {A : Type ℓ} → (p : I → A) →
+      runTCTerm (endpoint0Term (quoteTerm p)) ≡ p i0
+    endpoint0TermExampleInterval p = refl
+
+    endpoint0TermExampleDepInterval : ∀ {ℓ} {A : I → Type ℓ} → (p : (i : I) → A i) →
+      runTCTerm (endpoint0Term (quoteTerm p)) ≡ p i0
+    endpoint0TermExampleDepInterval p = refl
+
+    endpoint1TermExampleInterval : ∀ {ℓ} {A : Type ℓ} → (p : I → A) →
+      runTCTerm (endpoint1Term (quoteTerm p)) ≡ p i1
+    endpoint1TermExampleInterval p = refl
+
+    endpoint1TermExampleDepInterval : ∀ {ℓ} {A : I → Type ℓ} → (p : (i : I) → A i) →
+      runTCTerm (endpoint1Term (quoteTerm p)) ≡ p i1
+    endpoint1TermExampleDepInterval p = refl

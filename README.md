@@ -2,10 +2,10 @@
 
 Automate proofs constructed using properties of equality; reflexivity, symmetry, transivity and congruence.
 
-An extension of Selsam and De Moura's procedure in Intensional Type Theory to support Cubical Type Theory.
+An extension of Selsam and de Moura's [procedure](https://arxiv.org/abs/1701.04391) in Intensional Type Theory to support Cubical Type Theory.
 
 ## Installing
 TBA
 
 ## Usage
-For now just look at the file `src/Testing.agda`
+For now just look at the file `src/Examples.agda`
