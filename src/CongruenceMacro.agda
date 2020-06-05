@@ -14,95 +14,81 @@ module CongruenceMacro where
 
 -- * Parsing Term to input
 
-  traverseArgs : ℕ → (List (Arg Term) → Term) → List (Arg Term) → TC DepTree
+  depFromArgs : (f : List (Arg Term) → Term) → (args : List (Arg Term)) → DepTree
 
-  termToDep : ℕ → Term → TC DepTree
-  termToDep zero _ = typeError (strErr "Timeout" ∷ [])
-  termToDep (suc n) (var x args) = traverseArgs n (var x) args
-  termToDep (suc n) (con c args) = traverseArgs n (con c) args
-  termToDep (suc n) (def f args) = traverseArgs n (def f) args
-  termToDep _ (pat-lam cs args) = typeError (strErr "pat-lam is not of supported type." ∷ [])
-  termToDep _ (agda-sort s) = typeError (strErr "agda-sort is not of supported type." ∷ [])
-  termToDep _ (meta x x₁) = typeError (strErr "meta is not of supported type." ∷ [])
-  termToDep _ t = return (mkLeaf t)
+  termToDep : Term → DepTree
+  termToDep (var x args) = depFromArgs (var x) args
+  termToDep (con c args) = depFromArgs (con c) args
+  termToDep (def f args) = depFromArgs (def f) args
+  termToDep t = mkLeaf t
 
-  traverseArgs n f args = mapTC proj₂ (foldl fn (return ([] , mkLeaf (f []))) args)
+  depFromArgs f args = helper f (mkLeaf (f [])) args
     where
-      fn : TC (List (Arg Term) × DepTree) → Arg Term → TC (List (Arg Term) × DepTree)
-      fn accTC (arg i x) =
-        do acc ← accTC
-           let args = proj₁ acc ∷ʳ (arg i x)
-           let ltree = proj₂ acc
-           rtree ← termToDep n x
-           return (args , mkNode (mkLocal (f args) ltree rtree))
+      helper : (f : List (Arg Term) → Term) → DepTree → (args : List (Arg Term)) → DepTree
+      helper f ltree [] = ltree
+      helper f ltree (arg i t ∷ args) =
+        let fn : List (Arg Term) → Term
+            fn a = f (arg i t ∷ a)
+            rtree = termToDep t
+            tree = mkNode (mkLocal (fn []) ltree rtree)
+        in helper fn tree args
 
   depToInput : DepTree → List Input
   depToInput (mkLeaf x) = []
   depToInput (mkNode (mkLocal c f a)) = depToInput f ++ depToInput a ∷ʳ Dep (mkNode (mkLocal c f a))
 
-  pathToInput : ℕ → Bool → Term → TC (List Input)
-  pathToInput n b term =
-    do info ← getPathInfo term
-       lt ← termToDep n (PathInfo.left info)
-       rt ← termToDep n (PathInfo.right info)
-       return (depToInput lt ++ depToInput rt ∷ʳ Eq b (mkEqual (ref lt) (ref rt) (fromTerm term)))
+  termToDepInput : Term → List Input
+  termToDepInput = depToInput ∘ termToDep
 
-  termToInput : ℕ → Term → TC (List Input)
-  termToInput n term =
-    catchTC (pathToInput n false term)
-            (do tree ← termToDep n term
-                return (depToInput tree))
+  pathToInput : Bool → Term → TC (List Input)
+  pathToInput b term =
+    do PInfo l r _ ← pathInfo term
+       return (termToDepInput l ++ termToDepInput r ∷ʳ Eq b (mkEqual l r (fromTerm term)))
 
-  pathoverToTerms : ℕ → Term → List Term
-  pathoverToTerms n (lam _ (abs _ x)) = helper n 0 x
+  termToInput : Term → TC (List Input)
+  termToInput term =
+    catchTC (pathToInput false term)
+            (return (termToDepInput term))
+
+  argsUntilVarN : (d : ℕ) → List (Arg Term) → List (Arg Term)
+  argsUntilVarN d args = takeWhile (not ∘ isVarN d ∘ unwrapArg) args
+
+  termsUsingAbs : Term → List Term
+  termsUsingAbs (lam _ (abs _ x)) = helper 0 x
     where
-      helper : ℕ → ℕ → Term → List Term
-      helperWithArgs : ℕ → ℕ → (List (Arg Term) → Term) → List (Arg Term) → List Term
-      helperWithArgs zero _ _ _ = []
-      helperWithArgs (suc n) d f args =
-        let argTerms = mapList unwrapArg args
-            found = if any (isVarN d) argTerms then
-              mapIndex n predℕ (f (takeWhile (λ a → not (isVarN d (unwrapArg a))) args)) ∷ []
+      helper : (absIndex : ℕ) → Term → List Term
+      helperWithArgs : ℕ → (List (Arg Term) → Term) → List (Arg Term) → List Term
+      helperWithArgs d f args =
+        let found = if any (isVarN d ∘ unwrapArg) args then
+              mapIndex predℕ (f (argsUntilVarN d args)) ∷ []
                 else []
-        in flatmap (helper n d) argTerms ++ found
-      helper zero _ _ = []
-      helper (suc n) d (var x args) = helperWithArgs n d (var x) args
-      helper (suc n) d (con c args) = helperWithArgs n d (con c) args
-      helper (suc n) d (def f args) = helperWithArgs n d (def f) args
-      helper (suc n) d (pat-lam cs args) = helperWithArgs n d (pat-lam cs) args
-      helper (suc n) d (lam _ (abs _ x)) = helper n (suc d) x
-      helper (suc n) d (pi a b) = []
-      helper (suc n) d (agda-sort s) = []
-      helper (suc n) d (lit l) = []
-      helper (suc n) d (meta x x₁) = []
-      helper (suc n) d unknown = []
-  pathoverToTerms n _ = []
+        in (flatmap (helper d ∘ unwrapArg) args) ++ found
+      helper d (var x args) = helperWithArgs d (var x) args
+      helper d (con c args) = helperWithArgs d (con c) args
+      helper d (def f args) = helperWithArgs d (def f) args
+      helper d (pat-lam cs args) = helperWithArgs d (pat-lam cs) args
+      helper d (lam _ (abs _ x)) = helper (suc d) x
+      helper d _ = []
+  termsUsingAbs _ = []
 
-  pathoverToInput : ℕ → Maybe Term → TC (List Input)
-  pathoverToInput n nothing = return []
-  pathoverToInput n (just x) = mapTC flat (sequenceTC (mapList (pathToInput n true) (pathoverToTerms n x)))
+  pathoverToInput : Maybe Term → TC (List Input)
+  pathoverToInput nothing = return []
+  pathoverToInput (just x) = mapTC flat (sequenceTC (mapList (pathToInput true) (termsUsingAbs x)))
 
-  goalToInput : ℕ → Term → TC (Term × Term × List Input)
-  goalToInput n goal = catchTC
-    (do PInfo a b P ← getPathInfo goal
-        aInput ← termToDep n a
-        bInput ← termToDep n b
-        pathoverInput ← pathoverToInput n P
-        return ( a , b , pathoverInput ++ depToInput aInput ++ depToInput bInput ))
+  goalToInput : Term → TC (Term × Term × List Input)
+  goalToInput goal = catchTC
+    (do PInfo lTerm rTerm P ← pathInfo goal
+        pathoverInput ← pathoverToInput P
+        return (lTerm , rTerm , pathoverInput ++ termToDepInput lTerm ++ termToDepInput rTerm ))
     (typeError (strErr "Failed parsing the goal" ∷ []))
 
   -- Fetches and parses the context
-  inputFromCtx : ℕ → TC (List Input)
-  inputFromCtx n =
-    do ctx ← getContext
-       rec (length ctx)
-    where
-      rec : ℕ → TC (List Input)
-      rec zero = return []
-      rec (suc i) =
-        do l ← termToInput n (var i [])
-           r ← rec i
-           return (l ++ r)
+  inputFromCtx : TC (List Input)
+  inputFromCtx =
+    do ctxTypes ← getContext
+       let ctx = mapList (λ i → var i []) (range (length ctxTypes))
+       let inputs = mapList termToInput (rev ctx)
+       mapTC flat (sequenceTC inputs)
            
 -- * Macros
 
@@ -112,15 +98,13 @@ module CongruenceMacro where
   -- Debug CC from the goal type
   computeCCHelper : Maybe Term → Term → TC Data
   computeCCHelper hint goalTy =
-    do ctxInput ← inputFromCtx fuel
-       PInfo a b P ← getPathTypeInfo goalTy
-       aInput ← termToDep fuel a
-       bInput ← termToDep fuel b
-       pathoverInput ← pathoverToInput fuel P
+    do ctxInput ← inputFromCtx
+       PInfo a b P ← pathTypeInfo goalTy
+       pathoverInput ← pathoverToInput P
        hintInput ← case hint of λ {
          nothing → return [] ;
-         (just info) → pathToInput fuel false info }
-       let input = pathoverInput ++ hintInput ++ depToInput aInput ++ depToInput bInput ++ ctxInput
+         (just info) → pathToInput false info }
+       let input = pathoverInput ++ hintInput ++ termToDepInput a ++ termToDepInput b ++ ctxInput
        return (congruenceClosure fuel input)
 
   computeCC : Term → TC Data
@@ -140,11 +124,11 @@ module CongruenceMacro where
 
   congruenceHelper : Maybe Term → Term → TC Unit
   congruenceHelper hint goal =
-      do ctxInput ← inputFromCtx fuel
-         (a , b , goalInput) ← goalToInput fuel goal
+      do ctxInput ← inputFromCtx
+         (a , b , goalInput) ← goalToInput goal
          hintInput ← case hint of λ {
            nothing → return [] ;
-           (just help) → pathToInput fuel false help }
+           (just help) → pathToInput false help }
          let cc = congruenceClosure fuel (hintInput ++ goalInput ++ ctxInput)
          let solutions = connect fuel a b cc
          case solutions of λ {

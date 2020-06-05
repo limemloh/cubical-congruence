@@ -11,7 +11,7 @@ module ReflectionUtils where
   open import Reflection.Term using (_≟_)
   import Agda.Builtin.Nat as Nat
 
-  open import List
+  open import List hiding ([_])
 
   -- Macroes for debugging
   macro
@@ -45,16 +45,18 @@ module ReflectionUtils where
   isVarN n (var x _) = n Nat.== x
   isVarN n _ = false
 
-  mapIndex : ℕ → (ℕ → ℕ) → Term → Term
-  mapIndex zero _ t = t
-  mapIndex (suc n) f (var x args) = var (f x) (mapList (mapArg (mapIndex n f)) args)
-  mapIndex (suc n) f (con c args) = con c (mapList (mapArg (mapIndex n f)) args)
-  mapIndex (suc n) f (def f₁ args) = def f₁ (mapList (mapArg (mapIndex n f)) args)
-  mapIndex (suc n) f (lam v (abs s x)) = lam v (abs s (mapIndex n f x))
-  mapIndex (suc n) f (pat-lam cs args) = pat-lam cs (mapList (mapArg (mapIndex n f)) args)
-  mapIndex (suc n) f (pi a (abs s x)) = pi (mapArg (mapIndex n f) a) (abs s (mapIndex n f x))
-  mapIndex (suc n) f (agda-sort (Sort.set t)) = agda-sort (Sort.set (mapIndex n f t))
-  mapIndex (suc n) f t = t
+  mapArgList : (Term → Term) → List (Arg Term) → List (Arg Term)
+  mapArgList f args = mapList (λ {(arg i x) → arg i (f x)}) args
+
+  mapIndex : (ℕ → ℕ) → Term → Term
+  mapIndex f (var x args) = var (f x) (mapList (λ {(arg i x) → arg i (mapIndex f x)}) args)
+  mapIndex f (con c args) = con c (mapList (λ {(arg i x) → arg i (mapIndex f x)}) args)
+  mapIndex f (def f₁ args) = def f₁ (mapList (λ {(arg i x) → arg i (mapIndex f x)}) args)
+  mapIndex f (lam v (abs s x)) = lam v (abs s (mapIndex f x))
+  mapIndex f (pat-lam cs args) = pat-lam cs (mapList (λ {(arg i x) → arg i (mapIndex f x)}) args)
+  mapIndex f (pi (arg i a) (abs s x)) = pi (arg i (mapIndex f a)) (abs s (mapIndex f x))
+  mapIndex f (agda-sort (Sort.set t)) = agda-sort (Sort.set (mapIndex f t))
+  mapIndex f t = t
 
   reflTerm : Term → Term
   reflTerm t = (def (quote refl) (hArg unknown ∷ hArg unknown ∷ hArg t ∷ []))
@@ -77,15 +79,14 @@ module ReflectionUtils where
       left : Term
       right : Term
       pathover : Maybe Term
-  open PathInfo
 
-  getPathTypeInfo : Term → TC PathInfo
-  getPathTypeInfo ty = catchTC (helper ty)
-                              (do n ← reduce ty
-                                  helper n)
+  pathTypeInfo : Term → TC PathInfo
+  pathTypeInfo ty = catchTC (helper ty)
+                            (do n ← reduce ty
+                                helper n)
     where
       helper : Term → TC PathInfo
-      helper (def (quote _≡_) (_ ∷ arg _ P ∷ arg _ l ∷ arg _ r ∷ [])) = return (PInfo l r (just (reflTerm P)))
+      helper (def (quote _≡_) (_ ∷ arg _ P ∷ arg _ l ∷ arg _ r ∷ [])) = return (PInfo l r nothing)
       helper (def (quote PathP) (_ ∷ arg _ P ∷ arg _ l ∷ arg _ r ∷ [])) = return (PInfo l r (just P))
       helper t = typeError (strErr "Term" ∷ termErr t ∷ strErr "is not a path." ∷ [])
 
@@ -101,15 +102,15 @@ module ReflectionUtils where
   endpoint1Term : Term → TC Term
   endpoint1Term P = normalise (def (quote endpoint1) (hArg unknown ∷ hArg unknown ∷ vArg P ∷ []))
 
-  getPathInfo : Term → TC PathInfo
-  getPathInfo t =
+  pathInfo : Term → TC PathInfo
+  pathInfo t =
     do isInter ← isIntervalFn t
        if isInter then
          (do l ← endpoint0Term t
              r ← endpoint1Term t
              return (PInfo l r nothing))
          else do ty ← inferType t
-                 getPathTypeInfo ty
+                 pathTypeInfo ty
 
 -- * Building Terms
   pattern SymTerm p = (def (quote sym) (_ ∷ _ ∷ _ ∷ _ ∷ arg _ p ∷ []))
@@ -175,101 +176,106 @@ module ReflectionUtils where
   hcongr-ideal α p = λ i → α i (p i)
 
   hcongrTerm : Term → Term → Term
-  hcongrTerm fg ab = (def (quote hcongr-ideal) (repeat 7 (hArg unknown) ++ vArg fg ∷ vArg ab ∷ []))
+  hcongrTerm α p = (def (quote hcongr-ideal) (repeat 7 (hArg unknown) ++ vArg α ∷ vArg p ∷ []))
 
   hcongrTerms : List Term → List Term → List Term
   hcongrTerms fs as = flatmap (λ f → mapList (hcongrTerm f) as) fs
 
   hcongrTermTC : TC Term → TC Term → TC Term
-  hcongrTermTC tc-fg tc-ab =
-    do fg ← tc-fg
-       ab ← tc-ab
-       return (hcongrTerm fg ab)
+  hcongrTermTC tc-α tc-p =
+    do α ← tc-α
+       p ← tc-p
+       return (hcongrTerm α p)
 
   hcongrTermsTC : List (TC Term) → List (TC Term) → List (TC Term)
   hcongrTermsTC fs as = flatmap (λ f → mapList (hcongrTermTC f) as) fs
 
   module Examples where
-    getPathInfoExamplePath : ∀ {ℓ} {A : Type ℓ} {a b : A} → (p : a ≡ b) →
-      runTC (getPathInfo (quoteTerm p)) ≡ PInfo (quoteTerm a) (quoteTerm b) (just (reflTerm (quoteTerm A)))
-    getPathInfoExamplePath p = refl
+    Example-pathInfo-Path : ∀ {ℓ} {A : Type ℓ} {a b : A} → (p : a ≡ b) →
+      runTC (pathInfo (quoteTerm p)) ≡ PInfo (quoteTerm a) (quoteTerm b) nothing
+    Example-pathInfo-Path p = refl
 
-    getPathInfoExamplePathP : ∀ {ℓ} {A : I → Type ℓ} {a : A i0} {b : A i1} → (p : PathP A a b) →
-      runTC (getPathInfo (quoteTerm p)) ≡ PInfo (quoteTerm a) (quoteTerm b) (just (quoteTerm A))
-    getPathInfoExamplePathP p = refl
+    Example-pathInfo-PathP : ∀ {ℓ} {A : I → Type ℓ} {a : A i0} {b : A i1} → (p : PathP A a b) →
+      runTC (pathInfo (quoteTerm p)) ≡ PInfo (quoteTerm a) (quoteTerm b) (just (quoteTerm A))
+    Example-pathInfo-PathP p = refl
 
-    getPathInfoExampleInterval : ∀ {ℓ} {A : Type ℓ} → (p : I → A) →
-      runTC (getPathInfo (quoteTerm p)) ≡ PInfo (quoteTerm (p i0)) (quoteTerm (p i1)) nothing
-    getPathInfoExampleInterval p = refl
+    Example-pathInfo-Interval : ∀ {ℓ} {A : Type ℓ} → (p : I → A) →
+      runTC (pathInfo (quoteTerm p)) ≡ PInfo (quoteTerm (p i0)) (quoteTerm (p i1)) nothing
+    Example-pathInfo-Interval p = refl
 
-    getPathInfoExampleDepInterval : ∀ {ℓ} {A : I → Type ℓ} → (p : (i : I) → A i) →
-      runTC (getPathInfo (quoteTerm p)) ≡ PInfo (quoteTerm (p i0)) (quoteTerm (p i1)) nothing
-    getPathInfoExampleDepInterval p = refl
+    Example-pathInfo-DepInterval : ∀ {ℓ} {A : I → Type ℓ} → (p : (i : I) → A i) →
+      runTC (pathInfo (quoteTerm p)) ≡ PInfo (quoteTerm (p i0)) (quoteTerm (p i1)) nothing
+    Example-pathInfo-DepInterval p = refl
 
-    isHomogeneousExamplePath : ∀ {ℓ} {A : Type ℓ} {a b : A} → (p : a ≡ b) →
+    Example-isHomogeneous-Path : ∀ {ℓ} {A : Type ℓ} {a b : A} → (p : a ≡ b) →
       runTC (isHomogeneous (quoteTerm p)) ≡ true
-    isHomogeneousExamplePath p = refl
+    Example-isHomogeneous-Path p = refl
 
-    isHomogeneousExamplePathP : ∀ {ℓ} {A : I → Type ℓ} {a : A i0} {b : A i1} → (p : PathP A a b) →
+    Example-isHomogeneous-PathP : ∀ {ℓ} {A : I → Type ℓ} {a : A i0} {b : A i1} → (p : PathP A a b) →
       runTC (isHomogeneous (quoteTerm p)) ≡ false
-    isHomogeneousExamplePathP p = refl
+    Example-isHomogeneous-PathP p = refl
 
-    isHomogeneousExamplePathPHom : ∀ {ℓ} {A : I → Type ℓ} {a b : A i0} → (p : PathP (λ i → A i0) a b) →
+    Example-isHomogeneous-PathPHom : ∀ {ℓ} {A : I → Type ℓ} {a b : A i0} → (p : PathP (λ i → A i0) a b) →
       runTC (isHomogeneous (quoteTerm p)) ≡ true
-    isHomogeneousExamplePathPHom p = refl
+    Example-isHomogeneous-PathPHom p = refl
 
-    -- isHomogeneousExampleInterval : ∀ {ℓ} {A : Type ℓ} → (p : I → A) →
+    -- Example-isHomogeneous-Interval : ∀ {ℓ} {A : Type ℓ} → (p : I → A) →
     --   runTC (isHomogeneous (quoteTerm p)) ≡ true
-    -- isHomogeneousExampleInterval p = refl
+    -- Example-isHomogeneous-Interval p = refl
 
-    isHomogeneousExampleDepInterval : ∀ {ℓ} {A : I → Type ℓ} → (p : (i : I) → A i) →
+    Example-isHomogeneous-DepInterval : ∀ {ℓ} {A : I → Type ℓ} → (p : (i : I) → A i) →
       runTC (isHomogeneous (quoteTerm p)) ≡ false
-    isHomogeneousExampleDepInterval p = refl
+    Example-isHomogeneous-DepInterval p = refl
 
-    isIntervalFnExampleInterval : ∀ {ℓ} {A : Type ℓ} → (p : I → A) →
+    Example-isIntervalFn-Interval : ∀ {ℓ} {A : Type ℓ} → (p : I → A) →
       runTC (isIntervalFn (quoteTerm p)) ≡ true
-    isIntervalFnExampleInterval p = refl
+    Example-isIntervalFn-Interval p = refl
 
-    isIntervalFnExampleDepInterval : ∀ {ℓ} {A : I → Type ℓ} → (p : (i : I) → A i) →
+    Example-isIntervalFn-DepInterval : ∀ {ℓ} {A : I → Type ℓ} → (p : (i : I) → A i) →
       runTC (isIntervalFn (quoteTerm p)) ≡ true
-    isIntervalFnExampleDepInterval p = refl
+    Example-isIntervalFn-DepInterval p = refl
 
-    isIntervalFnExamplePath : ∀ {ℓ} {A : Type ℓ} {a b : A} → (p : a ≡ b) →
+    Example-isIntervalFn-Path : ∀ {ℓ} {A : Type ℓ} {a b : A} → (p : a ≡ b) →
       runTC (isIntervalFn (quoteTerm p)) ≡ false
-    isIntervalFnExamplePath p = refl
+    Example-isIntervalFn-Path p = refl
 
-    isIntervalFnExamplePathP : ∀ {ℓ} {A : I → Type ℓ} {a : A i0} {b : A i1} → (p : PathP A a b) →
+    Example-isIntervalFn-PathP : ∀ {ℓ} {A : I → Type ℓ} {a : A i0} {b : A i1} → (p : PathP A a b) →
       runTC (isIntervalFn (quoteTerm p)) ≡ false
-    isIntervalFnExamplePathP p = refl
+    Example-isIntervalFn-PathP p = refl
 
-    endpoint0TermExampleInterval : ∀ {ℓ} {A : Type ℓ} → (p : I → A) →
+    Example-endpoint0Term-Interval : ∀ {ℓ} {A : Type ℓ} → (p : I → A) →
       runTCTerm (endpoint0Term (quoteTerm p)) ≡ p i0
-    endpoint0TermExampleInterval p = refl
+    Example-endpoint0Term-Interval p = refl
 
-    endpoint0TermExampleDepInterval : ∀ {ℓ} {A : I → Type ℓ} → (p : (i : I) → A i) →
+    Example-endpoint0Term-DepInterval : ∀ {ℓ} {A : I → Type ℓ} → (p : (i : I) → A i) →
       runTCTerm (endpoint0Term (quoteTerm p)) ≡ p i0
-    endpoint0TermExampleDepInterval p = refl
+    Example-endpoint0Term-DepInterval p = refl
 
-    endpoint1TermExampleInterval : ∀ {ℓ} {A : Type ℓ} → (p : I → A) →
+    Example-endpoint1Term-Interval : ∀ {ℓ} {A : Type ℓ} → (p : I → A) →
       runTCTerm (endpoint1Term (quoteTerm p)) ≡ p i1
-    endpoint1TermExampleInterval p = refl
+    Example-endpoint1Term-Interval p = refl
 
-    endpoint1TermExampleDepInterval : ∀ {ℓ} {A : I → Type ℓ} → (p : (i : I) → A i) →
+    Example-endpoint1Term-DepInterval : ∀ {ℓ} {A : I → Type ℓ} → (p : (i : I) → A i) →
       runTCTerm (endpoint1Term (quoteTerm p)) ≡ p i1
-    endpoint1TermExampleDepInterval p = refl
+    Example-endpoint1Term-DepInterval p = refl
 
-    composeTermExamplePathPath : ∀ {ℓ} {A : Type ℓ} {a b c : A} (p : a ≡ b) (q : b ≡ c) →
+    Example-composeTerm-PathPath : ∀ {ℓ} {A : Type ℓ} {a b c : A} (p : a ≡ b) (q : b ≡ c) →
       runTCTerm (composeTerm (quoteTerm p) (quoteTerm q)) ≡ p ∙ q
-    composeTermExamplePathPath p q = refl
+    Example-composeTerm-PathPath p q = refl
 
-    composeTermExampleReflPath : ∀ {ℓ} {A : Type ℓ} {a b : A} (p : a ≡ b)  →
+    Example-composeTerm-ReflPath : ∀ {ℓ} {A : Type ℓ} {a b : A} (p : a ≡ b)  →
       runTCTerm (composeTerm (quoteTerm (refl {x = a})) (quoteTerm p)) ≡ p
-    composeTermExampleReflPath p = refl
+    Example-composeTerm-ReflPath p = refl
 
-    composeTermExamplePathRefl : ∀ {ℓ} {A : Type ℓ} {a b : A} (p : a ≡ b)  →
+    Example-composeTerm-PathRefl : ∀ {ℓ} {A : Type ℓ} {a b : A} (p : a ≡ b)  →
       runTCTerm (composeTerm (quoteTerm p) (quoteTerm (refl {x = a}))) ≡ p
-    composeTermExamplePathRefl p = refl
+    Example-composeTerm-PathRefl p = refl
 
-    composeTermExampleSymSym : ∀ {ℓ} {A : Type ℓ} {a b c : A} (p : a ≡ b) (q : b ≡ c)→
+    Example-composeTerm-SymSym : ∀ {ℓ} {A : Type ℓ} {a b c : A} (p : a ≡ b) (q : b ≡ c) →
       runTCTerm (composeTerm (quoteTerm (sym q)) (quoteTerm (sym p))) ≡ sym (p ∙ q)
-    composeTermExampleSymSym p q = refl
+    Example-composeTerm-SymSym p q = refl
+
+
+    -- test :  ∀ {ℓ} {A : Type ℓ} {a : A} {b : A} →
+    --   runTCTerm (normalise (quoteTerm ((λ i → A)[ a ≡ b ]))) ≡ {!!}
+    -- test p = {!!}

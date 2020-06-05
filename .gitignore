@@ -3,3 +3,5 @@ MAlonzo/**
 _build
 *.aux
 *.glob
+latex/
+src/Chapter.lagda

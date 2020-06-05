@@ -175,7 +175,7 @@ module Examples where
   +++-unit-r {A} {n} (x ∷ₓ v) =
     let IH = +++-unit-r v
         q = quoteTerm (v +++ []ₓ)
-        tree = runTC (termToInput fuel q)
+        tree = runTC (termToInput q)
         -- ql = quoteTerm (x ∷ₓ (v +++ []ₓ))
         -- qr = quoteTerm (x ∷ₓ v)
         -- qg = quoteTerm ((λ i → Vec A (+-zero n i))[ (x ∷ₓ v) +++ []ₓ ≡ (x ∷ₓ v) ])

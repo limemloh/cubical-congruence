@@ -24,6 +24,10 @@ module List where
   repeat zero a = []
   repeat (suc n) a = a ∷ repeat n a
 
+  range : ℕ → List ℕ
+  range zero = []
+  range (suc n) = range n ∷ʳ n
+
   foldl : (B → A → B) → B → List A → B
   foldl f b [] = b
   foldl f b (x ∷ xs) = foldl f (f b x) xs
