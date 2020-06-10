@@ -61,6 +61,9 @@ module CongruenceClosure where
       right : Ref
       edges : List Edge
 
+  mergeParallel : ParallelEdges → ParallelEdges → ParallelEdges
+  mergeParallel (mkParallelEdges l r es₁) (mkParallelEdges _ _ es₂) = mkParallelEdges l r (es₁ ++ es₂)
+
   -- Input representation of equal
   record Equal : Set where
     constructor mkEqual
@@ -107,19 +110,20 @@ module CongruenceClosure where
 
   -- lookups with fallbacks
   repr : Ref → Data → Ref
-  repr n d = safeLookup n (Data.repr d) n
+  repr n d = findWithDefault n n (Data.repr d)
 
   next : Ref → Data → Ref
-  next n d = safeLookup n (Data.next d) n
+  next n d = findWithDefault n n (Data.next d)
 
   useList : Ref → Data → UseList
-  useList n d = safeLookup n (Data.useList d) empty
+  useList n d = findWithDefault empty n (Data.useList d)
 
   size : Ref → Data → ℕ
-  size n d = safeLookup (repr n d) (Data.size d) 1
+  size n d = findWithDefault 1 (repr n d) (Data.size d)
 
-  proof : Ref → Data → Map ParallelEdges
-  proof n d = safeLookup n (Data.edges d) ((n , mkParallelEdges n n (fromTerm (reflTerm n) ∷ [])) ∷ [])
+  outgoing : Ref → Data → Map ParallelEdges
+  outgoing n d =
+    findWithDefault ((n , mkParallelEdges n n (fromTerm (reflTerm n) ∷ [])) ∷ []) n (Data.edges d)
 
     -- Notation for equivalence of terms
   [_≊_]_ : Ref → Ref → Data → Bool
@@ -144,12 +148,12 @@ module CongruenceClosure where
       rec zero b = []
       rec (suc n) b = let
         -- Get the outgoing edges
-        outgoing = proof b d
+        out = outgoing b d
         -- Recursively get walks from every endpoint of outgoing edge
         in flatmap (λ { (mkParallelEdges l r edges) →
           if l == r then (mapList (λ x → [ x ]) edges)
           else (flatmap (λ edge → mapList (λ rest → edge ∷ rest) (rec n r)) edges)
-            }) (values outgoing)
+            }) (elems out)
 
   reverseWalk : Walk → Walk
   reverseWalk walks = rev (mapList flipEdge walks)
@@ -238,11 +242,10 @@ module CongruenceClosure where
     useList = insert to (union (useList from d) (useList to d)) (Data.useList d) }
 
   removeUses : UseList → Data → Data
-  removeUses u d = foldl (λ d₁ l → deleteCongr l d₁) d (values u)
+  removeUses u d = foldl (λ d₁ l → deleteCongr l d₁) d (elems u)
 
   reinsertUses : UseList → Data → Data
-  reinsertUses u d = foldl (λ d₁ l → findOrInsertCongr l d) d (values u)
-
+  reinsertUses u d = foldl (λ d₁ l → findOrInsertCongr l d) d (elems u)
 
   swapNext : Ref → Ref → Data → Data
   swapNext l r d = let ln = next l d
@@ -251,24 +254,23 @@ module CongruenceClosure where
 
   -- Making `a` the representative in its component
   makeRepr : Ref → Data → Data
-  makeRepr a d = rec (size (repr a d) d) a d
+  makeRepr a d = rec (size a d) a d
     where
       rec : ℕ → Ref → Data → Data
       rec zero _ d = d
       rec (suc n) l d with repr l d == l
       rec (suc n) l d | true = d
-      rec (suc n) l d | false = foldl helper d (values (proof l d))
+      rec (suc n) l d | false = foldl helper d (elems (outgoing l d))
         where
           helper : Data → ParallelEdges → Data
           helper d (mkParallelEdges l r pfs) = record d {
-            edges = update r (insert l (mkParallelEdges r l (mapList flipEdge pfs))) (Data.edges (rec n r d)) }
+            edges = adjust (insert l (mkParallelEdges r l (mapList flipEdge pfs))) r (Data.edges (rec n r d)) }
 
   insertEdge : Ref → Ref → Edge → Data → Data
   insertEdge l r e d =
-    let outgoingL = proof l d
-        newOutgoingL = updater r (λ x →
-          just (mkParallelEdges l r (e ∷ (fromJust-def [] (map-Maybe ParallelEdges.edges x))))) outgoingL
-    in record d { edges = insert l newOutgoingL (Data.edges d)}
+    let outgoingL = outgoing l d
+        newOutgoingL = insertWith mergeParallel r (mkParallelEdges l r (e ∷ [])) outgoingL
+    in record d { edges = insert l newOutgoingL (Data.edges d) }
 
   initUselist : LDef → LDef → Data → Data
   initUselist (mkLocal c f a) P d = addToUselist (ref f) P (addToUselist (ref a) P (rec f))
@@ -278,16 +280,16 @@ module CongruenceClosure where
       rec (mkLeaf x) = d
 
   processDep : DepTree → Data → Data
-  processDep (mkNode l@(mkLocal c f a)) d = findOrInsertCongr l (initUselist l l d)
   processDep (mkLeaf x) d = d
+  processDep (mkNode l) d = findOrInsertCongr l (initUselist l l d)
 
   -- Depth First search with predicate
   dfsAny : (Ref → Bool) → Ref → Data → Bool
-  dfsAny f a d = rec (size (repr a d) d) f a d
+  dfsAny f a d = rec (size a d) f a d
     where
       rec : ℕ → (Ref → Bool) → Ref → Data → Bool
       rec zero _ _ _ = false
-      rec (suc n) f a d = f a or any (λ x → rec n f (ParallelEdges.right (proj₂ x)) d) (proof a d)
+      rec (suc n) f a d = f a or any (λ x → rec n f (ParallelEdges.right (proj₂ x)) d) (outgoing a d)
 
   -- Assumes that the pathover equalities are processed first
   processEq : Bool → Equal → Data → Data
@@ -313,7 +315,7 @@ module CongruenceClosure where
         d = removeUses (useList ra d) d
         d = makeRepr a d
         -- TODO use `next` below when proper maps are in place
-        mappedRepr = mapValues (λ rep → if rep == ra then rb else rep) (Data.repr d)
+        mappedRepr = mapElems (λ rep → if rep == ra then rb else rep) (Data.repr d)
         d = record d { repr = insert a rb mappedRepr }
         d = insertEdge a b newEdge d
         d = reinsertUses (useList ra d) d
@@ -322,9 +324,8 @@ module CongruenceClosure where
         d = record d { size = insert rb (size ra d + size rb d) (Data.size d) }
     in d
 
-  -- The ℕ is "fuel" to satify the termination checker
-  congruenceClosure : ℕ → List Input → Data
-  congruenceClosure n p = rec n (initialData p)
+  processInput : ℕ → List Input → Data
+  processInput n p = rec n (initialData p)
     where
       rec : ℕ → Data → Data
       rec zero d = d
@@ -332,3 +333,7 @@ module CongruenceClosure where
       rec (suc n) d | [] = d
       rec (suc n) d | Eq b x ∷ p = rec n (processEq b x (record d { pending = p }))
       rec (suc n) d | Dep x ∷ p = rec n (processDep x (record d { pending = p }))
+
+  -- The ℕ is "fuel" to satify the termination checker
+  congruenceClosure : ℕ → Ref → Ref → List Input → List (TC Term)
+  congruenceClosure n l r input = connect n l r (processInput n input)

@@ -67,8 +67,8 @@ module ReflectionUtils where
                 return true)
             (return false)
 
-  isHomogeneous : Term → TC Bool
-  isHomogeneous t = withNormalisation true
+  isPath : Term → TC Bool
+  isPath t = withNormalisation true
     (catchTC (do checkType t (def (quote _≡_) (repeat 2 (hArg unknown) ++ repeat 2 (vArg unknown)))
                  return true)
              (return false))
@@ -113,15 +113,14 @@ module ReflectionUtils where
                  pathTypeInfo ty
 
 -- * Building Terms
-  pattern SymTerm p = (def (quote sym) (_ ∷ _ ∷ _ ∷ _ ∷ arg _ p ∷ []))
-  pattern SymPTerm p = (def (quote symP) (_ ∷ _ ∷ _ ∷ _ ∷ arg _ p ∷ []))
-  pattern ReflTerm n = (def (quote refl)) (_ ∷ _ ∷ arg _ n ∷ [])
+  pattern SymTerm p = def (quote sym) (_ ∷ _ ∷ _ ∷ _ ∷ arg _ p ∷ [])
+  pattern SymPTerm p = def (quote symP) (_ ∷ _ ∷ _ ∷ _ ∷ arg _ p ∷ [])
+  pattern ReflTerm n = def (quote refl) (_ ∷ _ ∷ arg _ n ∷ [])
 
   symTerm : Term → Term
   symTerm (SymTerm p) = p
   symTerm (SymPTerm p) = p
-  -- symTerm t@(ReflTerm _) = t
-  symTerm p = (def (quote symP) (repeat 4 (hArg unknown) ++ vArg p ∷ []))
+  symTerm p = def (quote symP) (repeat 4 (hArg unknown) ++ vArg p ∷ [])
 
   symTerms : List Term → List Term
   symTerms l = mapList symTerm l
@@ -142,13 +141,13 @@ module ReflectionUtils where
   comp-Path-PathP {AB = AB} {a = a} {b = b} p q = transport (lUnitPathover AB a b) (compPathP p q)
 
   composeTerm : Term → Term → TC Term
-  composeTerm (SymPTerm p) (SymPTerm q) = mapTC symTerm (composeTerm q p)
-  composeTerm (SymTerm p) (SymTerm q) = mapTC symTerm (composeTerm q p)
   composeTerm (ReflTerm _) q = return q
   composeTerm p (ReflTerm _) = return p
+  composeTerm (SymPTerm p) (SymPTerm q) = mapTC symTerm (composeTerm q p)
+  composeTerm (SymTerm p) (SymTerm q) = mapTC symTerm (composeTerm q p)
   composeTerm p q =
-    do hp ← isHomogeneous p
-       hq ← isHomogeneous q
+    do hp ← isPath p
+       hq ← isPath q
        return (compose hp hq)
     where
       compose : Bool → Bool → Term
@@ -207,25 +206,25 @@ module ReflectionUtils where
       runTC (pathInfo (quoteTerm p)) ≡ PInfo (quoteTerm (p i0)) (quoteTerm (p i1)) nothing
     Example-pathInfo-DepInterval p = refl
 
-    Example-isHomogeneous-Path : ∀ {ℓ} {A : Type ℓ} {a b : A} → (p : a ≡ b) →
-      runTC (isHomogeneous (quoteTerm p)) ≡ true
-    Example-isHomogeneous-Path p = refl
+    Example-isPath-Path : ∀ {ℓ} {A : Type ℓ} {a b : A} → (p : a ≡ b) →
+      runTC (isPath (quoteTerm p)) ≡ true
+    Example-isPath-Path p = refl
 
-    Example-isHomogeneous-PathP : ∀ {ℓ} {A : I → Type ℓ} {a : A i0} {b : A i1} → (p : PathP A a b) →
-      runTC (isHomogeneous (quoteTerm p)) ≡ false
-    Example-isHomogeneous-PathP p = refl
+    Example-isPath-PathP : ∀ {ℓ} {A : I → Type ℓ} {a : A i0} {b : A i1} → (p : PathP A a b) →
+      runTC (isPath (quoteTerm p)) ≡ false
+    Example-isPath-PathP p = refl
 
-    Example-isHomogeneous-PathPHom : ∀ {ℓ} {A : I → Type ℓ} {a b : A i0} → (p : PathP (λ i → A i0) a b) →
-      runTC (isHomogeneous (quoteTerm p)) ≡ true
-    Example-isHomogeneous-PathPHom p = refl
+    Example-isPath-PathPHom : ∀ {ℓ} {A : I → Type ℓ} {a b : A i0} → (p : PathP (λ i → A i0) a b) →
+      runTC (isPath (quoteTerm p)) ≡ true
+    Example-isPath-PathPHom p = refl
 
-    -- Example-isHomogeneous-Interval : ∀ {ℓ} {A : Type ℓ} → (p : I → A) →
-    --   runTC (isHomogeneous (quoteTerm p)) ≡ true
-    -- Example-isHomogeneous-Interval p = refl
+    -- Example-isPath-Interval : ∀ {ℓ} {A : Type ℓ} → (p : I → A) →
+    --   runTC (isPath (quoteTerm p)) ≡ true
+    -- Example-isPath-Interval p = refl
 
-    Example-isHomogeneous-DepInterval : ∀ {ℓ} {A : I → Type ℓ} → (p : (i : I) → A i) →
-      runTC (isHomogeneous (quoteTerm p)) ≡ false
-    Example-isHomogeneous-DepInterval p = refl
+    Example-isPath-DepInterval : ∀ {ℓ} {A : I → Type ℓ} → (p : (i : I) → A i) →
+      runTC (isPath (quoteTerm p)) ≡ false
+    Example-isPath-DepInterval p = refl
 
     Example-isIntervalFn-Interval : ∀ {ℓ} {A : Type ℓ} → (p : I → A) →
       runTC (isIntervalFn (quoteTerm p)) ≡ true

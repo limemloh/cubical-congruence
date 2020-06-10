@@ -11,7 +11,7 @@ module Examples where
   -- For debugging
   open import CongruenceClosure
   open import ReflectionUtils
-  open import Agda.Builtin.Reflection hiding (Type)
+  open import Reflection hiding (Type)
 
   private
     variable
@@ -93,24 +93,30 @@ module Examples where
   test₁₇ f p q = congruence
 
   -- Favor paths appearing in the pathover
-  test₁₈ : ∀ {ℓ} {A : Type ℓ} {C : A → Type ℓ} (f : (a : A) → C a) {a b c : A} →
+  test₁₈ : ∀ {ℓ} {A : Type ℓ} {C : A → Type ℓ} (f : (a : A) → C a) {a b : A} →
     (p q : a ≡ b) → PathP (λ i → C (p i)) (f a) (f b)
   test₁₈ f p q = congruence
-  test₁₉ : ∀ {ℓ} {A : Type ℓ} {C : A → Type ℓ} (f : (a : A) → C a) {a b c : A} →
+  test₁₉ : ∀ {ℓ} {A : Type ℓ} {C : A → Type ℓ} (f : (a : A) → C a) {a b : A} →
     (p q : a ≡ b) → PathP (λ i → C (q i)) (f a) (f b)
   test₁₉ f p q = congruence
+
+  -- Appearing two paths of same type in the pathover
+  test₂₀ : ∀ {ℓ} {A : Type ℓ} {C : A → A → Type ℓ} (f : (a : A) → (a' : A) → C a a') {a b : A} →
+    (p q : a ≡ b) → PathP (λ i → C (p i) (q i)) (f a a) (f b b)
+  test₂₀ f p q = congruence
+
 
 -- * TODO
 
   -- -- Try different solutions when paths of same type appear in pathover (p and refl)
-  -- test₂₀ : ∀ {ℓ} {A : Type ℓ} {C : A → Type ℓ} (f : (a : A) → C a) {a : A} →
-  --   (p : a ≡ a) → (λ i → C (p i))[ f a ≡ f a ]
-  -- test₂₀ f p = congruence
+  -- test₂₁ : ∀ {ℓ} {A : Type ℓ} {C : A → Type ℓ} (f : (a : A) → C a) {a : A} →
+  --   (p : a ≡ a) → PathP (λ i → C (p i)) (f a) (f a)
+  -- test₂₁ f p = congruence
 
   -- -- Looping in the pathover
-  -- test₂₁ : ∀ {ℓ} {A : Type ℓ} {C : A → Type ℓ} (f : (a : A) → C a) {a : A} →
+  -- test₂₂ : ∀ {ℓ} {A : Type ℓ} {C : A → Type ℓ} (f : (a : A) → C a) {a : A} →
   --   (p : a ≡ a) → (λ i → C ((p ∙ p) i))[ f a ≡ f a ]
-  -- test₂₁ f p = congruence
+  -- test₂₂ f p = congruence
 
     -- let ql = quoteTerm (f a)
     --     qr = quoteTerm (f a)
@@ -172,20 +178,19 @@ module Examples where
 
   +++-unit-r : ∀ {A} {n} → (v : Vec A n) → PathP (λ i → Vec A (+-zero n i)) (v +++ []ₓ) v
   +++-unit-r []ₓ = refl
-  +++-unit-r {A} {n} (x ∷ₓ v) =
+  +++-unit-r {A} {suc n₁} (x ∷ₓ v) =
     let IH = +++-unit-r v
         q = quoteTerm (v +++ []ₓ)
-        tree = runTC (termToInput q)
-        -- ql = quoteTerm (x ∷ₓ (v +++ []ₓ))
-        -- qr = quoteTerm (x ∷ₓ v)
-        -- qg = quoteTerm ((λ i → Vec A (+-zero n i))[ (x ∷ₓ v) +++ []ₓ ≡ (x ∷ₓ v) ])
-        -- qIH = quoteTerm IH
-        -- qty = runTC (inferType qIH)
-        -- cc = runTC (computeCCH qIH qg)
-        -- qv = quoteTerm v
-        -- qvnil = quoteTerm (v +++ []ₓ)
-        -- rl = proof ql cc
-        -- rr = repr qr cc
+        l = x ∷ₓ (v +++ []ₓ)
+        r = x ∷ₓ v
+        ql = quoteTerm l
+        qr = quoteTerm r
+        goal = PathP (λ i → Vec A (suc (+-zero n₁ i))) (x ∷ₓ (v +++ []ₓ)) (x ∷ₓ v)
+        cc = computeCCHint IH goal
+        reprl = repr ql cc
+        reprr = repr qr cc
+        nql = runTC (normalise ql)
+        nqr = runTC (normalise qr)
     in {!congruenceH IH !} -- (hcongr-ideal (λ i → _∷ₓ_ x) IH)
 
   +++-assoc : ∀ {A} {m n o} → (v : Vec A m) → (w : Vec A n) → (q : Vec A o) →

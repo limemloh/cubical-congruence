@@ -50,18 +50,18 @@ module CongruenceMacro where
     catchTC (pathToInput false term)
             (return (termToDepInput term))
 
-  argsUntilVarN : (d : ℕ) → List (Arg Term) → List (Arg Term)
+  argsUntilVarN : ℕ → List (Arg Term) → List (Arg Term)
   argsUntilVarN d args = takeWhile (not ∘ isVarN d ∘ unwrapArg) args
 
   termsUsingAbs : Term → List Term
-  termsUsingAbs (lam _ (abs _ x)) = helper 0 x
+  termsUsingAbs (lam _ (abs _ t)) = helper 0 t
     where
-      helper : (absIndex : ℕ) → Term → List Term
+      helper : ℕ → Term → List Term
       helperWithArgs : ℕ → (List (Arg Term) → Term) → List (Arg Term) → List Term
       helperWithArgs d f args =
-        let found = if any (isVarN d ∘ unwrapArg) args then
-              mapIndex predℕ (f (argsUntilVarN d args)) ∷ []
-                else []
+        let found = if any (isVarN d ∘ unwrapArg) args
+                    then mapIndex predℕ (f (argsUntilVarN d args)) ∷ []
+                    else []
         in (flatmap (helper d ∘ unwrapArg) args) ++ found
       helper d (var x args) = helperWithArgs d (var x) args
       helper d (con c args) = helperWithArgs d (con c) args
@@ -77,10 +77,10 @@ module CongruenceMacro where
 
   goalToInput : Term → TC (Term × Term × List Input)
   goalToInput goal = catchTC
-    (do PInfo lTerm rTerm P ← pathInfo goal
+    (do PInfo l r P ← pathInfo goal
         pathoverInput ← pathoverToInput P
-        return (lTerm , rTerm , pathoverInput ++ termToDepInput lTerm ++ termToDepInput rTerm ))
-    (typeError (strErr "Failed parsing the goal" ∷ []))
+        return (l , r , pathoverInput ++ termToDepInput l ++ termToDepInput r))
+    (typeError (strErr "Failed to parse the goal as a path" ∷ []))
 
   -- Fetches and parses the context
   inputFromCtx : TC (List Input)
@@ -105,35 +105,43 @@ module CongruenceMacro where
          nothing → return [] ;
          (just info) → pathToInput false info }
        let input = pathoverInput ++ hintInput ++ termToDepInput a ++ termToDepInput b ++ ctxInput
-       return (congruenceClosure fuel input)
-
-  computeCC : Term → TC Data
-  computeCC = computeCCHelper nothing
-       
-  computeCCH : Term → Term → TC Data
-  computeCCH hint = computeCCHelper (just hint)
+       return (processInput fuel input)
+  macro
+    computeCC : Term → Term → TC Unit
+    computeCC goaltype goal =
+      do d ← computeCCHelper nothing goaltype
+         dataTerm ← quoteTC d
+         unify goal dataTerm
+  
+    computeCCHint : Term → Term → Term → TC Unit
+    computeCCHint hint goaltype goal =
+      do d ← computeCCHelper (just hint) goaltype
+         dataTerm ← quoteTC d
+         unify goal dataTerm
+    -- computeCCH hint goal = computeCCHelper (just hint) goal
 
   noSolutionError : Term → Term → TC Unit
   noSolutionError a b = typeError
     (strErr "Unable to connect" ∷ termErr a ∷ strErr "and" ∷ termErr b ∷ [])
 
-  noValidSolutionError : Term → Term → TC Unit
-  noValidSolutionError a b = typeError
-    (strErr "Non of the connections between " ∷ termErr a ∷
-      strErr "and" ∷ termErr b ∷ strErr "were a match" ∷ [])
+  noValidSolutionError : Term → Term → List (TC Term) → TC Unit
+  noValidSolutionError a b solutions =
+    do terms ← sequenceTC solutions
+       let s = flatmap (λ t → strErr "[" ∷ termErr t ∷ strErr "]" ∷ []) terms
+       typeError (strErr "Non of the connections between " ∷ termErr a ∷
+                  strErr "and" ∷ termErr b ∷ strErr "were a match: " ∷ s)
 
   congruenceHelper : Maybe Term → Term → TC Unit
   congruenceHelper hint goal =
       do ctxInput ← inputFromCtx
-         (a , b , goalInput) ← goalToInput goal
+         (l , r , goalInput) ← goalToInput goal
          hintInput ← case hint of λ {
            nothing → return [] ;
            (just help) → pathToInput false help }
-         let cc = congruenceClosure fuel (hintInput ++ goalInput ++ ctxInput)
-         let solutions = connect fuel a b cc
+         let solutions = congruenceClosure fuel l r (hintInput ++ goalInput ++ ctxInput)
          case solutions of λ {
-           [] → noSolutionError a b ;
-           (x ∷ x₁) → tryAll solutions (noValidSolutionError a b)}
+           [] → noSolutionError l r ;
+           (x ∷ x₁) → tryAll solutions (noValidSolutionError l r solutions)}
       where
         tryAll : List (TC Term) → TC Unit → TC Unit
         tryAll [] err = err
@@ -143,9 +151,7 @@ module CongruenceMacro where
 
   macro
     congruenceH : Term → Term → TC Unit
-    congruenceH hint = congruenceHelper (just hint)
+    congruenceH hint goal = congruenceHelper (just hint) goal
     
     congruence : Term → TC Unit
-    congruence = congruenceHelper nothing
-
-
+    congruence goal = congruenceHelper nothing goal
