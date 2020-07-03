@@ -23,7 +23,7 @@ module CongruenceClosure where
   _==ₓ_ : Term × Term → Term × Term → Bool
   (l₁ , l₂) ==ₓ (r₁ , r₂) = l₁ == r₁ and l₂ == r₂
 
-  open import Map _==_
+  open import Map _==_ public
   import Map _==ₓ_ as Pair
 
   Ref = Term
@@ -74,7 +74,7 @@ module CongruenceClosure where
 
   -- Input for the congruence closure procedure
   data Input : Set where
-    -- Equality description and flag whether it is from the pathover
+    -- Equality description and flag whether it is from the type path
     Eq : Bool → Equal → Input
     -- Dependency input
     Dep : DepTree → Input
@@ -150,18 +150,15 @@ module CongruenceClosure where
         -- Get the outgoing edges
         out = outgoing b d
         -- Recursively get walks from every endpoint of outgoing edge
-        in flatmap (λ { (mkParallelEdges l r edges) →
-          if l == r then (mapList (λ x → [ x ]) edges)
-          else (flatmap (λ edge → mapList (λ rest → edge ∷ rest) (rec n r)) edges)
-            }) (elems out)
-
-  reverseWalk : Walk → Walk
-  reverseWalk walks = rev (mapList flipEdge walks)
-
-  composeWalks : List Walk → List Walk → List Walk
-  composeWalks [] r = r
-  composeWalks l [] = l
-  composeWalks l r = flatmap (λ e → mapList (_++_ e) r) l
+        in flatmap helper (elems out)
+        where
+          helper : ParallelEdges → List Walk
+          helper (mkParallelEdges l r edges) with l == r
+          helper (mkParallelEdges _ _ edges) | true = mapList [_] edges
+          helper (mkParallelEdges _ r edges) | false =
+            let restEdges = rec n r
+                consEdge = λ edge → mapList (edge ∷_) restEdges
+            in flatmap consEdge edges
 
   -- Reduce the walk length if possible
   shorten : Walk → Walk
@@ -170,6 +167,7 @@ module CongruenceClosure where
   shorten (symEdge (fromTerm (ReflTerm _)) ∷ es) = shorten es
   shorten (l@(fromTerm prf₁) ∷ r@(symEdge (fromTerm prf₂)) ∷ es) = if prf₁ == prf₂ then shorten es else (l ∷ shorten (r ∷ es))
   shorten (l@(symEdge (fromTerm prf₁)) ∷ r@(fromTerm prf₂) ∷ es) = if prf₁ == prf₂ then shorten es else (l ∷ shorten (r ∷ es))
+  shorten (symEdge (fromCongr fl fr al ar) ∷ es) = fromCongr fr fl ar al ∷ shorten es
   shorten (e ∷ es) = e ∷ shorten es
 
   -- Fix empty walks
@@ -177,18 +175,54 @@ module CongruenceClosure where
   emptyToRefl n [] = fromTerm (reflTerm n) ∷ []
   emptyToRefl _ e = e
 
+  -- -- Making `a` the representative in its component
+  promoteToRepr : Ref → Data → Data
+  promoteToRepr a d = rec (size a d) a d
+    where
+      ra = repr a d
+      rec : ℕ → Ref → Data → Data
+      rec zero _ d = d
+      rec (suc _) l d with l == ra
+      rec (suc _) l d | true = d
+      rec (suc n) l d | false =
+        let outEdges = outgoing l d
+            parallelEdges = elems outEdges
+            d = record d { edges = delete l (Data.edges d) }
+        in foldl helper d parallelEdges
+        where
+          helper : Data → ParallelEdges → Data
+          helper d (mkParallelEdges l r pfs) =
+            let d = rec n r d
+                flipParallel = mkParallelEdges r l (mapList flipEdge pfs)
+                outEdgesR = insertWith mergeParallel l flipParallel (outgoing r d)
+                edges = insert r outEdgesR (Data.edges d)
+            in record d {edges = edges}
+
+
+  updateComponentRepr : Ref → Ref → Data → Data
+  updateComponentRepr from to d =
+    let mappedRepr = mapElems (λ rep → if rep == from then to else rep) (Data.repr d)
+    in record d { repr = insert from to mappedRepr }
+    -- -- TODO: Use next when Map is efficient
+    -- record d {repr = rec (size from d) from (Data.repr d)}
+    -- where
+    --   rec : ℕ → Ref → Map Ref → Map Ref
+    --   rec _ c m with c == to
+    --   rec (suc n) c m | false = rec n (next c d) (insert c to m)
+    --   rec _ _ m | _ = m
+
   -- Finds every possible walk between `l` and `r`
   walksBetween : Ref → Ref → Data → List Walk
   walksBetween l r d with [ l ≊ r ] d
   walksBetween l r d | false = []
   walksBetween l r d | true =
-    -- Different walks to each repr
-    let lwalks = walksToRepr l d
-        rwalks = walksToRepr r d
-    -- Reverse the second one
-        rwalksReversed = mapList reverseWalk rwalks
-    -- Compose the two
-        walks = composeWalks lwalks rwalksReversed
+    -- Make `r` the representative
+    let rsize = size r d
+        d = promoteToRepr r d
+        d = updateComponentRepr (repr l d) r d
+        d = record d { size = insert r rsize (Data.size d) }
+        -- Collect edges from `l` to the representative `r`
+        walks = walksToRepr l d
     -- Find and remove cancellations
         shortWalks = mapList (emptyToRefl l ∘ shorten) walks
     in shortWalks
@@ -252,19 +286,6 @@ module CongruenceClosure where
                        rn = next r d
                    in record d { next = insert l rn (insert r ln (Data.next d)) }
 
-  -- Making `a` the representative in its component
-  makeRepr : Ref → Data → Data
-  makeRepr a d = rec (size a d) a d
-    where
-      rec : ℕ → Ref → Data → Data
-      rec zero _ d = d
-      rec (suc n) l d with repr l d == l
-      rec (suc n) l d | true = d
-      rec (suc n) l d | false = foldl helper d (elems (outgoing l d))
-        where
-          helper : Data → ParallelEdges → Data
-          helper d (mkParallelEdges l r pfs) = record d {
-            edges = adjust (insert l (mkParallelEdges r l (mapList flipEdge pfs))) r (Data.edges (rec n r d)) }
 
   insertEdge : Ref → Ref → Edge → Data → Data
   insertEdge l r e d =
@@ -291,12 +312,12 @@ module CongruenceClosure where
       rec zero _ _ _ = false
       rec (suc n) f a d = f a or any (λ x → rec n f (ParallelEdges.right (proj₂ x)) d) (outgoing a d)
 
-  -- Assumes that the pathover equalities are processed first
+  -- Assumes that the type path equalities are processed first
   processEq : Bool → Equal → Data → Data
   processEq _ (mkEqual l r _ ) d with [ l ≊ r ] d
   processEq false (mkEqual l r _) d | true = d
   processEq true (mkEqual l r edge) d | true =
-    -- Input from pathover inside a component
+    -- Input from type path inside a component
     let looping = l == r
         rCanReachL = dfsAny (λ n → n == l) r d
         swap = (not looping) and rCanReachL
@@ -313,15 +334,14 @@ module CongruenceClosure where
         ra = repr a d
         rb = repr b d
         d = removeUses (useList ra d) d
-        d = makeRepr a d
-        -- TODO use `next` below when proper maps are in place
-        mappedRepr = mapElems (λ rep → if rep == ra then rb else rep) (Data.repr d)
-        d = record d { repr = insert a rb mappedRepr }
+        d = promoteToRepr a d
+        d = updateComponentRepr ra rb d
+        d = record d { repr = insert a rb (Data.repr d) }
+        d = record d { size = insert rb (size ra d + size rb d) (Data.size d) }
         d = insertEdge a b newEdge d
         d = reinsertUses (useList ra d) d
         d = swapNext ra rb d
         d = copyUselist ra rb d
-        d = record d { size = insert rb (size ra d + size rb d) (Data.size d) }
     in d
 
   processInput : ℕ → List Input → Data

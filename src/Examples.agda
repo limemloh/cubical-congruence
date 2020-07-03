@@ -92,7 +92,7 @@ module Examples where
     (p : a ≡ b) → (q : b ≡ c) → PathP (λ i → C ((p ∙ q) i)) (f a) (f c)
   test₁₇ f p q = congruence
 
-  -- Favor paths appearing in the pathover
+  -- Favor paths appearing in the type path
   test₁₈ : ∀ {ℓ} {A : Type ℓ} {C : A → Type ℓ} (f : (a : A) → C a) {a b : A} →
     (p q : a ≡ b) → PathP (λ i → C (p i)) (f a) (f b)
   test₁₈ f p q = congruence
@@ -100,7 +100,7 @@ module Examples where
     (p q : a ≡ b) → PathP (λ i → C (q i)) (f a) (f b)
   test₁₉ f p q = congruence
 
-  -- Appearing two paths of same type in the pathover
+  -- Appearing two paths of same type in the type path
   test₂₀ : ∀ {ℓ} {A : Type ℓ} {C : A → A → Type ℓ} (f : (a : A) → (a' : A) → C a a') {a b : A} →
     (p q : a ≡ b) → PathP (λ i → C (p i) (q i)) (f a a) (f b b)
   test₂₀ f p q = congruence
@@ -108,92 +108,58 @@ module Examples where
 
 -- * TODO
 
-  -- -- Try different solutions when paths of same type appear in pathover (p and refl)
+  -- -- Try different solutions when paths of same type appear in type path (p and refl)
   -- test₂₁ : ∀ {ℓ} {A : Type ℓ} {C : A → Type ℓ} (f : (a : A) → C a) {a : A} →
   --   (p : a ≡ a) → PathP (λ i → C (p i)) (f a) (f a)
   -- test₂₁ f p = congruence
 
-  -- -- Looping in the pathover
+  -- -- Looping in the type path
   -- test₂₂ : ∀ {ℓ} {A : Type ℓ} {C : A → Type ℓ} (f : (a : A) → C a) {a : A} →
   --   (p : a ≡ a) → (λ i → C ((p ∙ p) i))[ f a ≡ f a ]
   -- test₂₂ f p = congruence
 
-    -- let ql = quoteTerm (f a)
-    --     qr = quoteTerm (f a)
-    --     qa = quoteTerm a
-    --     qf = quoteTerm f
-    --     goal = quoteTerm ((λ i → C (p i))[ f a ≡ f a ])
-    --     cc = runTC (computeCC goal)
-    --     rl = repr ql cc
-    --     rr = repr qr cc
-    --     proofa = proof qa cc
-    --     pl = mkEPathsToRepr ql cc
-    --     pr = mkEPathsToRepr qr cc
-    --     pa = mkEPathsToRepr qa cc
-    --     ca = connectPath qa qa cc
-    --     cf = connectPath qf qf cc
-    --     res = connect fuel ql qr cc
-    -- in congruence
+-- -- Vectors
+--   data Vec (A : Type₀) : ℕ → Type₀ where
+--     []ₓ  : Vec A zero
+--     _∷ₓ_ : {n : ℕ} → A → Vec A n → Vec A (suc n)
 
-  -- testasd : ∀ {ℓ} {A : Type ℓ} {C : A → Type ℓ} (f : (a : A) → C a) {a : A} →
-  --   (p : a ≡ a) → (λ i → C ((p ∙ p) i))[ f a ≡ f a ]
-  -- testasd {ℓ} {A} {C} f {a} p = congruence
+--   _+++_ : ∀ {A} {n m} → Vec A n → Vec A m → Vec A (n + m)
+--   []ₓ +++ r = r
+--   (x ∷ₓ l) +++ r = x ∷ₓ (l +++ r)
 
-  -- testasda : ∀ {ℓ} {A : Type ℓ} {C : A → Type ℓ} (f : (a : A) → C a) {a b c : A} → (p : a ≡ b) → (q : b ≡ c) → (r : a ≡ c) → (λ i → C ((p ∙ p) i))[ f a ≡ f c ] → Unit
-  -- testasda {ℓ} {A} {C} f {a} p q goal =
-  --   let q = quoteTerm goal
-  --       pathover = runTC (getPathover q)
-  --       paths = parsePathover 100000 pathover
-  --       pp = quoteTerm (p ∙ p)
-  --       eq = runTC (parsePath 10000 true pp)
-  --   in {!!}
+--   +++-unit-r : ∀ {A} {n} → (v : Vec A n) → PathP (λ i → Vec A (+-zero n i)) (v +++ []ₓ) v
+--   +++-unit-r []ₓ = refl
+--   +++-unit-r {A} {suc n₁} (x ∷ₓ v) =
+--     let IH = +++-unit-r v
+--         -- q = quoteTerm (v +++ []ₓ)
+--         -- l = x ∷ₓ (v +++ []ₓ)
+--         -- r = x ∷ₓ v
+--         -- ql = quoteTerm l
+--         -- qr = quoteTerm r
+--         goal = PathP (λ i → Vec A (suc (+-zero n₁ i))) (x ∷ₓ (v +++ []ₓ)) (x ∷ₓ v)
+--         cc = computeCCHint IH goal
+--         -- reprl = repr ql cc
+--         -- reprr = repr qr cc
+--         -- nql = runTC (normalise ql)
+--         -- nqr = runTC (normalise qr)
+--         nnn = (λ i → _∷ₓ_ x)
+--         as = quoteTerm nnn
+--         ann = con (quote _∷ₓ_) (hArg unknown ∷ hArg unknown ∷ vArg (var 1 []) ∷ [])
+--         reprr = connect fuel ann ann cc
+--         proofof = runTC (normalise (def (quote refl)
+--           (hArg unknown ∷
+--            hArg unknown ∷
+--            hArg
+--            (con (quote _∷ₓ_)
+--             (hArg unknown ∷ hArg unknown ∷ vArg (var 1 []) ∷ []))
+--            ∷ [])))
+--         asd = runTCTerm (return proofof)
+--         asdddd = runTC (do n ← quoteTC nnn
+--                            inferType n)
+--         asdasd = {!!}
+--     in hcongr-ideal nnn IH
 
-  -- Path relevance
-  -- test₁₈ : ∀ {ℓ} {A : Type ℓ} {C : A → Type ℓ} (f : (a : A) → C a) {a : A} → (p : a ≡ a) → PathP (λ i → C ((p ∙ p) i)) (f a) (f a)
-  -- test₁₈ {ℓ} {A} {C} f {a} p = let
-  --   goal = quoteTerm (PathP (λ i → C (p i)) (f a) (f a))
-  --   l = quoteTerm (f a)
-  --   r = quoteTerm (f a)
-  --   cc = runTC (computeCC goal)
-  --   rl = repr l cc
-  --   rr = repr r cc
-  --   pl = mkProofToRepr l cc
-  --   mkEqual _ _ t = mkProofToRepr r cc
-  --   pr = runTCt t
-  --   cn = runTCt (connect l r cc)
-  --   in {!congruence!}
-
-  -- -- Depends on Injectivity of contructors   https://coq.inria.fr/refman/proof-engine/tactics.html#coq:tacn.congruence
-  -- test₁₁ : ∀ {f : A → A × A} {a b c : A} → f ≡ _,_ a → just (f b) ≡ just (f c) → b ≡ c
-  -- test₁₁ {ℓ} {A} {f} {a} {b} {c} p q = {!congruence!}
-
--- Vectors
-  data Vec (A : Type₀) : ℕ → Type₀ where
-    []ₓ  : Vec A zero
-    _∷ₓ_ : {n : ℕ} → A → Vec A n → Vec A (suc n)
-
-  _+++_ : ∀ {A} {n m} → Vec A n → Vec A m → Vec A (n + m)
-  []ₓ +++ r = r
-  (x ∷ₓ l) +++ r = x ∷ₓ (l +++ r)
-
-  +++-unit-r : ∀ {A} {n} → (v : Vec A n) → PathP (λ i → Vec A (+-zero n i)) (v +++ []ₓ) v
-  +++-unit-r []ₓ = refl
-  +++-unit-r {A} {suc n₁} (x ∷ₓ v) =
-    let IH = +++-unit-r v
-        q = quoteTerm (v +++ []ₓ)
-        l = x ∷ₓ (v +++ []ₓ)
-        r = x ∷ₓ v
-        ql = quoteTerm l
-        qr = quoteTerm r
-        goal = PathP (λ i → Vec A (suc (+-zero n₁ i))) (x ∷ₓ (v +++ []ₓ)) (x ∷ₓ v)
-        cc = computeCCHint IH goal
-        reprl = repr ql cc
-        reprr = repr qr cc
-        nql = runTC (normalise ql)
-        nqr = runTC (normalise qr)
-    in {!congruenceH IH !} -- (hcongr-ideal (λ i → _∷ₓ_ x) IH)
-
-  +++-assoc : ∀ {A} {m n o} → (v : Vec A m) → (w : Vec A n) → (q : Vec A o) →
-                PathP (λ i → Vec A (+-assoc m n o i)) (v +++ (w +++ q)) ((v +++ w) +++ q)
-  +++-assoc []ₓ w q = refl
-  +++-assoc (x ∷ₓ v) w q = hcongr-ideal (λ i a → x ∷ₓ a) (+++-assoc v w q)
+-- --   +++-assoc : ∀ {A} {m n o} → (v : Vec A m) → (w : Vec A n) → (q : Vec A o) →
+-- --                 PathP (λ i → Vec A (+-assoc m n o i)) (v +++ (w +++ q)) ((v +++ w) +++ q)
+-- --   +++-assoc []ₓ w q = refl
+-- --   +++-assoc (x ∷ₓ v) w q = hcongr-ideal (λ i a → x ∷ₓ a) (+++-assoc v w q)

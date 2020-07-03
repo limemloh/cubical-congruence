@@ -9,7 +9,7 @@ module CongruenceMacro where
   import Agda.Builtin.Nat as Nat
   open import Cubical.Data.Nat
   open import Reflection hiding (Type; name; _≟_)
-  open import ReflectionUtils
+  open import ReflectionUtils public
   open import CongruenceClosure
 
 -- * Parsing Term to input
@@ -71,15 +71,15 @@ module CongruenceMacro where
       helper d _ = []
   termsUsingAbs _ = []
 
-  pathoverToInput : Maybe Term → TC (List Input)
-  pathoverToInput nothing = return []
-  pathoverToInput (just x) = mapTC flat (sequenceTC (mapList (pathToInput true) (termsUsingAbs x)))
+  typepathToInput : Maybe Term → TC (List Input)
+  typepathToInput nothing = return []
+  typepathToInput (just x) = mapTC flat (sequenceTC (mapList (pathToInput true) (termsUsingAbs x)))
 
   goalToInput : Term → TC (Term × Term × List Input)
   goalToInput goal = catchTC
     (do PInfo l r P ← pathInfo goal
-        pathoverInput ← pathoverToInput P
-        return (l , r , pathoverInput ++ termToDepInput l ++ termToDepInput r))
+        typepathInput ← typepathToInput P
+        return (l , r , typepathInput ++ termToDepInput l ++ termToDepInput r))
     (typeError (strErr "Failed to parse the goal as a path" ∷ []))
 
   -- Fetches and parses the context
@@ -100,11 +100,11 @@ module CongruenceMacro where
   computeCCHelper hint goalTy =
     do ctxInput ← inputFromCtx
        PInfo a b P ← pathTypeInfo goalTy
-       pathoverInput ← pathoverToInput P
+       typepathInput ← typepathToInput P
        hintInput ← case hint of λ {
          nothing → return [] ;
          (just info) → pathToInput false info }
-       let input = pathoverInput ++ hintInput ++ termToDepInput a ++ termToDepInput b ++ ctxInput
+       let input = typepathInput ++ hintInput ++ termToDepInput a ++ termToDepInput b ++ ctxInput
        return (processInput fuel input)
   macro
     computeCC : Term → Term → TC Unit
@@ -122,14 +122,14 @@ module CongruenceMacro where
 
   noSolutionError : Term → Term → TC Unit
   noSolutionError a b = typeError
-    (strErr "Unable to connect" ∷ termErr a ∷ strErr "and" ∷ termErr b ∷ [])
+    (strErr "Unable to connect " ∷ termErr a ∷ strErr " and " ∷ termErr b ∷ [])
 
   noValidSolutionError : Term → Term → List (TC Term) → TC Unit
   noValidSolutionError a b solutions =
     do terms ← sequenceTC solutions
        let s = flatmap (λ t → strErr "[" ∷ termErr t ∷ strErr "]" ∷ []) terms
        typeError (strErr "Non of the connections between " ∷ termErr a ∷
-                  strErr "and" ∷ termErr b ∷ strErr "were a match: " ∷ s)
+                  strErr " and " ∷ termErr b ∷ strErr " are a match: " ∷ s)
 
   congruenceHelper : Maybe Term → Term → TC Unit
   congruenceHelper hint goal =

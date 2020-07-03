@@ -48,6 +48,19 @@ module ReflectionUtils where
   mapArgList : (Term → Term) → List (Arg Term) → List (Arg Term)
   mapArgList f args = mapList (λ {(arg i x) → arg i (f x)}) args
 
+  mapTermArgs : (Arg Term → Arg Term) → Term → Term
+  mapTermArgs f (var x args) = var x (mapList (λ {(arg i x) → f (arg i (mapTermArgs f x))}) args)
+  mapTermArgs f (con c args) = con c (mapList (λ {(arg i x) → f (arg i (mapTermArgs f x))}) args)
+  mapTermArgs f (def f₁ args) = def f₁ (mapList (λ {(arg i x) → f (arg i (mapTermArgs f x))}) args)
+  mapTermArgs f (lam v (abs s x)) = lam v (abs s (mapTermArgs f x))
+  mapTermArgs f (pat-lam cs args) = pat-lam cs (mapList (λ {(arg i x) → f (arg i (mapTermArgs f x))}) args)
+  mapTermArgs f (pi (arg i a) (abs s x)) = pi (f (arg i (mapTermArgs f a))) (abs s (mapTermArgs f x))
+  mapTermArgs f (agda-sort (Sort.set t)) = agda-sort (Sort.set (mapTermArgs f t))
+  mapTermArgs f t = t
+
+  forgetHiddenArgs : Term → Term
+  forgetHiddenArgs = mapTermArgs λ {(arg (arg-info hidden r) x) → arg (arg-info hidden r) unknown ; a → a}
+
   mapIndex : (ℕ → ℕ) → Term → Term
   mapIndex f (var x args) = var (f x) (mapList (λ {(arg i x) → arg i (mapIndex f x)}) args)
   mapIndex f (con c args) = con c (mapList (λ {(arg i x) → arg i (mapIndex f x)}) args)
@@ -69,7 +82,8 @@ module ReflectionUtils where
 
   isPath : Term → TC Bool
   isPath t = withNormalisation true
-    (catchTC (do checkType t (def (quote _≡_) (repeat 2 (hArg unknown) ++ repeat 2 (vArg unknown)))
+    (catchTC (do checkType t (def (quote _≡_)
+                                  (repeat 2 (hArg unknown) ++ repeat 2 (vArg unknown)))
                  return true)
              (return false))
 
@@ -78,7 +92,7 @@ module ReflectionUtils where
     field
       left : Term
       right : Term
-      pathover : Maybe Term
+      typepath : Maybe Term
 
   pathTypeInfo : Term → TC PathInfo
   pathTypeInfo ty = catchTC (helper ty)
@@ -128,17 +142,17 @@ module ReflectionUtils where
   symTermsTC : List (TC Term) → List (TC Term)
   symTermsTC l = mapList (mapTC symTerm) l
 
-  rUnitPathover : ∀ {ℓ} {A B : Type ℓ} → (AB : A ≡ B) → (a : A) → (b : B) → PathP (λ i → (AB ∙ refl) i) a b ≡ PathP (λ i → AB i) a b
-  rUnitPathover AB a b = λ i → PathP (λ j → rUnit AB (~ i) j) a b
+  rUnitTypepath : ∀ {ℓ} {A B : Type ℓ} → (AB : A ≡ B) → (a : A) → (b : B) → PathP (λ i → (AB ∙ refl) i) a b ≡ PathP (λ i → AB i) a b
+  rUnitTypepath AB a b = λ i → PathP (λ j → rUnit AB (~ i) j) a b
 
-  lUnitPathover : ∀ {ℓ} {A B : Type ℓ} → (AB : A ≡ B) → (a : A) → (b : B) → PathP (λ i → (refl ∙ AB) i) a b ≡ PathP (λ i → AB i) a b
-  lUnitPathover AB a b = λ i → PathP (λ j → lUnit AB (~ i) j) a b
+  lUnitTypepath : ∀ {ℓ} {A B : Type ℓ} → (AB : A ≡ B) → (a : A) → (b : B) → PathP (λ i → (refl ∙ AB) i) a b ≡ PathP (λ i → AB i) a b
+  lUnitTypepath AB a b = λ i → PathP (λ j → lUnit AB (~ i) j) a b
 
   comp-PathP-Path : ∀ {ℓ} {A B : Type ℓ} {AB : A ≡ B} {a : A} {b b' : B} → PathP (λ i → AB i) a b → b ≡ b' → PathP (λ i → AB i) a b'
-  comp-PathP-Path {AB = AB} {a = a} {b' = b'} p q = transport (rUnitPathover AB a b') (compPathP p q)
+  comp-PathP-Path {AB = AB} {a = a} {b' = b'} p q = transport (rUnitTypepath AB a b') (compPathP p q)
 
   comp-Path-PathP : ∀ {ℓ} {A B : Type ℓ} {AB : A ≡ B} {a a' : A} {b : B} → a ≡ a' → PathP (λ i → AB i) a' b → PathP (λ i → AB i) a b
-  comp-Path-PathP {AB = AB} {a = a} {b = b} p q = transport (lUnitPathover AB a b) (compPathP p q)
+  comp-Path-PathP {AB = AB} {a = a} {b = b} p q = transport (lUnitTypepath AB a b) (compPathP p q)
 
   composeTerm : Term → Term → TC Term
   composeTerm (ReflTerm _) q = return q
@@ -165,17 +179,17 @@ module ReflectionUtils where
   composeTerms : List (TC Term) → List (TC Term) → List (TC Term)
   composeTerms l r = flatmap (λ x → mapList (composeTCTerm x) r) l
 
-  hcongr-ideal : ∀ {ℓ} {A : I → Type ℓ}
+  hcongr : ∀ {ℓ} {A : I → Type ℓ}
                    {C : (i : I) → A i → Type ℓ}
                    {f : (a : A i0) → C i0 a} {g : (b : A i1) → C i1 b}
                    {a : A i0} {b : A i1} →
                    (α : PathP (λ i → (x : A i) → C i x) f g) →
                    (p : PathP A a b) →
                    PathP (λ i → C i (p i)) (f a) (g b)
-  hcongr-ideal α p = λ i → α i (p i)
+  hcongr α p = λ i → α i (p i)
 
   hcongrTerm : Term → Term → Term
-  hcongrTerm α p = (def (quote hcongr-ideal) (repeat 7 (hArg unknown) ++ vArg α ∷ vArg p ∷ []))
+  hcongrTerm α p = (def (quote hcongr) (repeat 7 (hArg unknown) ++ vArg α ∷ vArg p ∷ []))
 
   hcongrTerms : List Term → List Term → List Term
   hcongrTerms fs as = flatmap (λ f → mapList (hcongrTerm f) as) fs
