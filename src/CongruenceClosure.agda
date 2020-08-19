@@ -300,9 +300,23 @@ module CongruenceClosure where
       rec (mkNode x) = initUselist x P d
       rec (mkLeaf x) = d
 
+  trivial : Ref → Data → Bool
+  trivial r d = let out = outgoing r d
+                    edges = lookup r out
+                    in case edges of λ {
+                      nothing → true ;
+                      (just (mkParallelEdges left right edges)) → length edges Nat.< 1   }
+
   processDep : DepTree → Data → Data
   processDep (mkLeaf x) d = d
-  processDep (mkNode l) d = findOrInsertCongr l (initUselist l l d)
+  processDep (mkNode l@(mkLocal c f a)) d =
+    let edge = fromCongr (ref f) (ref f) (ref a) (ref a)
+        d =
+          -- TODO: Only add edge if nontrivial f = f or a = a exists
+          -- if (trivial (ref f) d and trivial (ref f) d) then d else
+               insertEdge c c edge d
+    in
+        findOrInsertCongr l (initUselist l l d)
 
   -- Depth First search with predicate
   dfsAny : (Ref → Bool) → Ref → Data → Bool
@@ -324,6 +338,7 @@ module CongruenceClosure where
         a = if swap then r else l
         b = if swap then l else r
         newEdge = if swap then flipEdge edge else edge
+        -- TODO: If looping iterate uselist and add self-congruent egdes to deps
         in insertEdge a b newEdge d
   processEq _ (mkEqual l r edge) d | false =
     -- Input equality between different components
