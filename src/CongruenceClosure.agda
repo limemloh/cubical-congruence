@@ -123,7 +123,7 @@ module CongruenceClosure where
 
   outgoing : Ref → Data → Map ParallelEdges
   outgoing n d =
-    findWithDefault ((n , mkParallelEdges n n (fromTerm (reflTerm n) ∷ [])) ∷ []) n (Data.edges d)
+    findWithDefault ((n , mkParallelEdges n n []) ∷ []) n (Data.edges d)
 
     -- Notation for equivalence of terms
   [_≊_]_ : Ref → Ref → Data → Bool
@@ -154,7 +154,7 @@ module CongruenceClosure where
         where
           helper : ParallelEdges → List Walk
           helper (mkParallelEdges l r edges) with l == r
-          helper (mkParallelEdges _ _ edges) | true = mapList [_] edges
+          helper (mkParallelEdges _ r edges) | true = if r == ra then [] ∷ mapList [_] edges else []
           helper (mkParallelEdges _ r edges) | false =
             let restEdges = rec n r
                 consEdge = λ edge → mapList (edge ∷_) restEdges
